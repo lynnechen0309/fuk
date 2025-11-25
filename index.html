@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>福岡旅遊小幫手 - 行程與清單</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons CDN for visual elements -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* 自定義滾動條樣式 (日系簡約，隱藏滾動條) */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none; /* IE and Edge */
+            scrollbar-width: none; /* Firefox */
+        }
+        .scroll-container {
+            flex-grow: 1;
+            overflow-y: auto;
+        }
+        /* 定義過渡動畫 */
+        .animate-fade-in {
+            animation: fadeIn 0.4s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Modal Backdrop */
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.4); 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 40;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .modal-backdrop.open {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal-content {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            max-width: 90%;
+            width: 420px;
+            transform: translateY(-30px);
+            transition: transform 0.3s ease;
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1); 
+        }
+        .modal-backdrop.open .modal-content {
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<!-- <body> 背景已調整為 bg-pink-50 (非常淡的玫瑰粉) -->
+<body class="bg-pink-50 antialiased h-screen flex flex-col">
+
+    <!-- 主容器：寬度受限並居中，模擬手機 App 介面 -->
+    <div id="app" class="max-w-md mx-auto bg-white h-full flex flex-col font-sans text-gray-800 shadow-2xl overflow-hidden relative">
+        
+        <!-- Header: 柔和花卉漸層 -->
+        <div id="header" class="bg-gradient-to-br from-rose-400 to-pink-300 p-6 text-white shrink-0 shadow-lg z-20">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h1 class="text-2xl font-bold tracking-wide">福岡櫻花紀行</h1>
+                    <p class="text-pink-100 text-sm mt-1">4/6 - 4/9 • 4天3夜</p>
+                </div>
+                <!-- 地圖圖標：採用白色底色，柔和粉色外框 -->
+                <div class="p-2 rounded-xl border border-white/40 backdrop-blur-sm">
+                    <i data-lucide="map-pin" class="w-6 h-6 text-white"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Area: 背景已調整為 bg-pink-50 -->
+        <div id="main-content" class="scroll-container z-10 bg-pink-50">
+            <!-- Content will be rendered here by JavaScript -->
+        </div>
+
+        <!-- Bottom Navigation: 簡約的白色導航 (維持白色，與頂部 header 形成呼應) -->
+        <div id="navigation" class="bg-white border-t border-gray-100 shrink-0 w-full flex justify-around items-center h-16 z-30 shadow-t-lg">
+            <!-- Navigation buttons will be rendered here by JavaScript -->
+        </div>
+        
+        <!-- ============================================== -->
+        <!-- Modal Structure (新增/編輯備註共用) -->
+        <!-- ============================================== -->
+        <div id="modal-backdrop" class="modal-backdrop" onclick="closeModal(event)">
+            <div id="modal-content" class="modal-content" onclick="event.stopPropagation()">
+                <!-- Modal content will be injected here -->
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // ====================================================================
+        // 1. DATA AND STATE MANAGEMENT (數據和狀態管理)
+        // ====================================================================
+
+        const STORAGE_KEY = 'fukuokaTripData_v3';
+
+        // *** 調整：初始活動標籤設定回 'itinerary' (行程) ***
+        let activeTab = 'itinerary'; // itinerary, ferry, packing
+        let activeDay = 1;
+        
+        // --- 變更：將行李清單結構改為分類陣列 ---
+        const initialPackingList = [
+            {
+                category: '文件與金錢',
+                items: [
+                    { id: 'p1', text: '護照 (有效期限6個月以上)', checked: false },
+                    { id: 'p2', text: '日幣現金 (屋台與渡輪只收現金)', checked: false },
+                    { id: 'p3', text: '機票/住宿預訂確認單', checked: false },
+                ]
+            },
+            {
+                category: '電子產品與充電',
+                items: [
+                    { id: 'p4', text: '網卡 / SIM卡 / 漫遊', checked: false },
+                    { id: 'p5', text: '行動電源 & 充電線', checked: false },
+                    { id: 'p6', text: '轉接頭 (日本雙孔扁插)', checked: false },
+                ]
+            },
+            {
+                category: '衣物與個人用品',
+                items: [
+                    { id: 'p7', text: '舒適好走的鞋 (太宰府/貓島)', checked: false },
+                    { id: 'p8', text: '輕便雨具 / 摺疊傘', checked: false },
+                    { id: 'p9', text: '個人盥洗用品與化妝品', checked: false },
+                    { id: 'p12', text: '換洗衣物', checked: false },
+                ]
+            },
+            {
+                category: '藥品與其他',
+                items: [
+                    { id: 'p10', text: '個人常備藥品 (感冒藥、腸胃藥)', checked: false },
+                    { id: 'p11', text: '暈船藥 (往貓島備用)', checked: false },
+                    { id: 'p13', text: '輕便保溫瓶', checked: false },
+                ]
+            }
+        ];
+        let packingList = []; // 現在是一個分類物件的陣列
+        // ----------------------------------------------------
+
+        // 初始行程資料 (維持不變)
+        const initialItineraryData = [
+            {
+                day: 1, date: "4/6 (一)", title: "抵達福岡 & 博多美食之夜",
+                activities: [
+                    { id: 'd1a1', time: "16:00", title: "抵達福岡機場 (FUK)", description: "辦理入境手續，提取行李。", type: "plane", mapQuery: "Fukuoka Airport International Terminal", image: "https://placehold.co/400x120/f7f7f7/6b7280?text=Fukuoka+Airport", notes: "確認 T1/T2 航廈。" },
+                    { id: 'd1a2', time: "17:00", title: "飯店 Check-in：福岡東方飯店", description: "飯店就在博多車站筑紫口旁，交通超方便。", type: "hotel", mapQuery: "Oriental Hotel Fukuoka Hakata Station", image: "https://placehold.co/400x120/f0f4f8/8f97a3?text=Oriental+Hotel+%7C+Hakata", notes: "記得跟櫃檯拿福岡地鐵一日券資訊。" },
+                    { id: 'd1a3', time: "18:30", title: "晚餐：兼虎沾麵 (兼虎)", description: "【最順路分店】位於博多車站 DEITOS 麵街道 2F。以極致濃郁的魚介豚骨湯頭聞名。", type: "food", mapQuery: "Kanetora Hakata Deitos", image: "https://placehold.co/400x120/fff7e6/d97706?text=Kanetora+Tsukemen+%7C+Noodle", notes: "" },
+                    { id: 'd1a4', time: "20:30", title: "中洲屋台體驗", description: "沿著那珂川散步，體驗福岡獨有的路邊攤文化。推薦點：關東煮、烤雞串。", type: "sightseeing", mapQuery: "Nakasu Yatai Street", image: "https://placehold.co/400x120/fcf3f6/ec4899?text=Nakasu+Yatai+%7C+Yatai", notes: "屋台只收現金！" }
+                ]
+            },
+            {
+                day: 2, date: "4/7 (二)", title: "太宰府祈福 & 舞鶴城賞櫻",
+                activities: [
+                    { id: 'd2a1', time: "09:00", title: "前往太宰府", description: "從博多巴士總站搭乘巴士，或搭地鐵至天神轉西鐵電車。", type: "transport", mapQuery: "Nishitetsu Fukuoka (Tenjin) Station", image: "https://placehold.co/400x120/e8f0f7/3b82f6?text=Dazaifu+Train+%7C+Nishitetsu", notes: "" },
+                    { id: 'd2a2', time: "10:00", title: "太宰府天滿宮", description: "參拜學問之神。必吃：參道上的「梅枝餅」。", type: "sightseeing", mapQuery: "Dazaifu Tenmangu", image: "https://placehold.co/400x120/fef7f7/f43f5e?text=Dazaifu+Tenmangu+%7C+Shrine", notes: "買兩個梅枝餅當點心。" },
+                    { id: 'd2a3', time: "14:30", title: "賞櫻：舞鶴公園 (福岡城跡)", description: "福岡市內No.1賞櫻名所。古城牆與櫻花交織的絕景。", type: "sightseeing", mapQuery: "Maizuru Park Fukuoka", image: "https://placehold.co/400x120/ffeef1/ec4899?text=Maizuru+Park+%7C+Sakura", notes: "帶野餐墊，拍夜櫻。" },
+                    { id: 'd2a4', time: "18:30", title: "晚餐：燒肉 Benjamin (焼肉ベンジャミン)", description: "以A5黑毛和牛聞名的高級燒肉店，推薦特選和牛拼盤。", type: "food", mapQuery: "Yakiniku Benjamin Tenjin", image: "https://placehold.co/400x120/f9f3e8/c75050?text=Yakiniku+Benjamin+%7C+Wagyu", notes: "已預約 18:30" },
+                    { id: 'd2a5', time: "20:30", title: "天神地區逛街散步", description: "天神地下街、PARCO、岩田屋等，享受夜間購物樂趣。", type: "shopping", mapQuery: "Tenjin Underground Shopping Center", image: "https://placehold.co/400x120/faf8f9/6e4c8e?text=Tenjin+Shopping+%7C+Tenjin", notes: "" }
+                ]
+            },
+            {
+                day: 3, date: "4/8 (三)", title: "貓島療癒 & 經典拉麵之夜",
+                activities: [
+                    { id: 'd3a1', time: "08:00", title: "前往新宮港", description: "JR博多站 → 福工大前站 (轉乘社區巴士) → 新宮港。", type: "transport", mapQuery: "Shingu Port Ferry Terminal", image: "https://placehold.co/400x120/f0f8ff/3b82f6?text=Shingu+Port+%7C+Ferry", notes: "巴士銜接時間很短，要跑快點！" },
+                    { id: 'd3a2', time: "09:20", title: "搭乘渡輪 (去程)", description: "船程約17分鐘。請提早購票。建議搭乘此班次。", type: "ferry", mapQuery: "Shingu Port", image: "https://placehold.co/400x120/e6f9f9/06b6d4?text=Ferry+Departure+%7C+Depart", notes: "要準備好零錢購票。" },
+                    { id: 'd3a3', time: "09:40", title: "相島 (貓島) 探索", description: "與貓咪互動、環島散步。島上資源較少，建議自備輕食與水。", type: "sightseeing", mapQuery: "Ainoshima Shingu", image: "https://placehold.co/400x120/f5fff5/22c55e?text=Ainoshima+%7C+Cat", notes: "多準備貓零食。" },
+                    { id: 'd3a4', time: "13:50", title: "搭乘渡輪 (回程)", description: "建議搭乘此班船班返回，準備前往天神地區。", type: "ferry", mapQuery: "Ainoshima Ferry Terminal", image: "https://placehold.co/400x120/e6f9f9/06b6d4?text=Ferry+Return+%7C+Return", notes: "" },
+                    { id: 'd3a5', time: "16:00", title: "博多站周邊逛街", description: "JR博多城 (AMU PLAZA)、博多阪急、KITTE博多。就在飯店旁邊，戰利品直接拿回房間。", type: "shopping", mapQuery: "JR Hakata City", image: "https://placehold.co/400x120/fcf8ff/8b5cf6?text=Hakata+Shopping+%7C+Shopping", notes: "" },
+                    { id: 'd3a6', time: "19:30", title: "晚餐：一蘭拉麵 天神西通店 (總本店)", description: "一蘭發源地，獨特的「味集中座席」體驗。24小時營業，隨時都能享受經典豚骨風味。", type: "food", mapQuery: "Ichiran Tenjin Nishidori", image: "https://placehold.co/400x120/fff7e6/d97706?text=Ichiran+Ramen+%7C+Main", notes: "點硬麵！" }
+                ]
+            },
+            {
+                day: 4, date: "4/9 (四)", title: "大濠公園 & 滿載而歸",
+                activities: [
+                    { id: 'd4a1', time: "09:00", title: "大濠公園散步", description: "福岡市民的後花園，湖景優美，適合晨間放鬆散步。", type: "sightseeing", mapQuery: "Ohori Park", image: "https://placehold.co/400x120/f0f8ff/3b82f6?text=Ohori+Park+%7C+Park", notes: "早點去避開人潮。" },
+                    { id: 'd4a2', time: "11:00", title: "最後採買：博多站", description: "購買伴手禮：明太子、博多通饅頭、拉麵包。推薦地點：博多站 Ming 或 Deitos。", type: "shopping", mapQuery: "Ming Hakata Station", image: "https://placehold.co/400x120/fcf8ff/8b5cf6?text=Hakata+Souvenir+%7C+Gifts", notes: "確認明太子是否有保冷包。" },
+                    { id: 'd4a3', time: "15:00", title: "前往福岡機場", description: "搭乘地鐵機場線直達，約5-10分鐘。", type: "transport", mapQuery: "Fukuoka Airport", image: "https://placehold.co/400x120/e8f0f7/3b82f6?text=To+FUK+Airport+%7C+Airport", notes: "" },
+                    { id: 'd4a4', time: "18:00", title: "搭機返程", description: "再見福岡！", type: "plane", mapQuery: "Fukuoka Airport International Terminal", image: "https://placehold.co/400x120/f7f7f7/6b7280?text=Departure+%7C+Return", notes: "" }
+                ]
+            }
+        ];
+        let itinerary = []; // 會從 localStorage 或 initialItineraryData 載入
+        
+        // 渡輪時刻表資料 (不變)
+        const ferrySchedule = {
+            toIsland: [
+                { time: "07:50", recommend: false },
+                { time: "09:20", recommend: true, note: "推薦去程，時間充裕" },
+                { time: "11:30", recommend: false },
+                { time: "14:30", recommend: false },
+                { time: "17:40", recommend: false },
+            ],
+            fromIsland: [
+                { time: "07:00", recommend: false },
+                { time: "08:40", recommend: false },
+                { time: "10:50", recommend: false },
+                { time: "13:50", recommend: true, note: "推薦回程，下午可逛街" },
+                { time: "16:00", recommend: false },
+                { time: "17:30", recommend: false },
+            ]
+        };
+
+        // ====================================================================
+        // 2. STORAGE & UTILS (儲存和工具函式)
+        // ====================================================================
+
+        const loadState = () => {
+            const storedData = localStorage.getItem(STORAGE_KEY);
+            if (storedData) {
+                try {
+                    const data = JSON.parse(storedData);
+                    // Load saved data
+                    itinerary = data.itinerary || initialItineraryData;
+                    // --- 調整：載入或使用新的結構 ---
+                    packingList = data.packingList || initialPackingList;
+                    // ------------------------------------
+                    
+                    // *** 調整：如果 localStorage 有 activeTab，就用它，否則預設為 'itinerary' ***
+                    activeTab = data.activeTab || 'itinerary'; 
+                    activeDay = data.activeDay || 1;
+                    return;
+                } catch (e) {
+                    console.error("Error loading state from localStorage, resetting.", e);
+                    // Fall through to default if parsing fails
+                }
+            }
+            // Default load (if no data or error)
+            itinerary = initialItineraryData;
+            packingList = initialPackingList.map(group => ({ 
+                ...group, 
+                items: group.items.map(item => ({ ...item, id: item.id || crypto.randomUUID() })) 
+            })); 
+        };
+
+        const saveState = () => {
+            const dataToStore = {
+                itinerary: itinerary,
+                packingList: packingList, // 新的結構直接儲存
+                activeTab: activeTab,
+                activeDay: activeDay
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToStore));
+        };
+
+
+        const getIconHtml = (name, size = 18, className = "") => {
+            return `<i data-lucide="${name}" class="w-${size/4} h-${size/4} ${className}"></i>`;
+        };
+
+        // 柔和花卉配色 (Salmon Pink, Teal, Pastel Yellow)
+        const getTypeColor = (type) => {
+            switch(type) {
+                case 'transport': return 'bg-teal-100 text-teal-700 border-teal-200'; // 薄荷綠
+                case 'food': return 'bg-yellow-100 text-yellow-700 border-yellow-200'; // 柔和黃
+                case 'sightseeing':
+                case 'activity':
+                case 'night': return 'bg-rose-100 text-rose-700 border-rose-200'; // 柔和玫瑰粉
+                case 'shopping': return 'bg-purple-100 text-purple-700 border-purple-200'; // 淡薰衣草紫
+                case 'hotel': return 'bg-pink-100 text-pink-700 border-pink-200'; // 粉色
+                case 'plane': return 'bg-gray-100 text-gray-700 border-gray-200'; // 中性灰
+                case 'ferry': return 'bg-teal-100 text-teal-700 border-teal-200'; // 薄荷綠 (與交通同)
+                default: return 'bg-gray-100 text-gray-700 border-gray-200';
+            }
+        };
+        
+        const getTypeLabel = (type) => {
+            switch(type) {
+                case 'food': return '美食';
+                case 'transport': return '交通';
+                case 'sightseeing': return '景點';
+                case 'shopping': return '購物';
+                case 'ferry': return '渡輪';
+                case 'plane': return '飛機';
+                case 'hotel': return '住宿';
+                case 'activity': return '活動';
+                default: return '一般';
+            }
+        };
+
+        const getMapLink = (query) => {
+            return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+        };
+
+        // --- Packing List Helpers ---
+        // 尋找清單項目及其所屬分類
+        const findPackingItem = (id) => {
+            for (const categoryGroup of packingList) {
+                const item = categoryGroup.items.find(i => i.id === id);
+                if (item) {
+                    return { item, categoryGroup };
+                }
+            }
+            return { item: null, categoryGroup: null };
+        };
+
+        // ====================================================================
+        // 3. RENDER FUNCTIONS (渲染函式)
+        // ====================================================================
+
+        const renderNavigation = () => {
+            const nav = document.getElementById('navigation');
+            const tabs = [
+                // 導航顏色調整為 Rose, Packing 調整為 Grey
+                { id: 'itinerary', label: '行程', icon: 'calendar', color: 'rose' },
+                { id: 'ferry', label: '渡輪資訊', icon: 'anchor', color: 'teal' },
+                { id: 'packing', label: '清單', icon: 'list-checks', color: 'gray' }
+            ];
+
+            nav.innerHTML = tabs.map(tab => `
+                <button 
+                    onclick="setActiveTab('${tab.id}')"
+                    class="flex flex-col items-center justify-center w-full h-full transition-colors ${
+                        // 確保選中狀態的顏色正確
+                        activeTab === tab.id 
+                        ? (tab.id === 'packing' ? 'text-gray-800' : `text-${tab.color}-600`)
+                        : 'text-gray-400 hover:text-gray-600'
+                    }"
+                >
+                    ${getIconHtml(tab.icon, 20, 'mb-1')}
+                    <span class="text-xs font-medium">${tab.label}</span>
+                </button>
+            `).join('');
+
+            lucide.createIcons();
+        };
+
+        const renderItinerary = () => {
+            const currentDayData = itinerary.find(day => day.day === activeDay);
+            if (!currentDayData) return;
+
+            const dayTabs = itinerary.map(day => `
+                <button
+                    onclick="setActiveDay(${day.day})"
+                    class="flex-1 py-4 px-2 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${
+                        // 選中 Tab 的顏色調整為 Rose
+                        activeDay === day.day
+                        // 注意：這裡使用 bg-white/50 配合外層的 bg-white，讓 Tab 區塊看起來乾淨
+                        ? 'border-rose-500 text-rose-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    }"
+                >
+                    <div class="text-xs uppercase tracking-wider mb-1">Day ${day.day}</div>
+                    <div>${day.date.split(' ')[0]}</div>
+                </button>
+            `).join('');
+
+            const activitiesHtml = currentDayData.activities.map(activity => {
+                const colorClass = getTypeColor(activity.type);
+                const iconName = activity.type === 'transport' ? 'train' : 
+                                 activity.type === 'food' ? 'utensils' : 
+                                 activity.type === 'sightseeing' ? 'camera' : 
+                                 activity.type === 'shopping' ? 'shopping-bag' : 
+                                 activity.type === 'hotel' ? 'moon' :
+                                 activity.type === 'plane' ? 'plane' :
+                                 activity.type === 'ferry' ? 'anchor' : 'info';
+                
+                const typeLabel = getTypeLabel(activity.type);
+
+                return `
+                    <div class="relative pl-10 group" id="activity-${activity.id}">
+                        <!-- Timeline Dot & Card Content -->
+                        <!-- 垂直線 -->
+                        <div class="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200 group-last:hidden"></div>
+                        
+                        <!-- Timeline Dot -->
+                        <div class="absolute left-0 top-4 w-8 h-8 rounded-full border-4 border-pink-50 shadow-md flex items-center justify-center z-10 ${colorClass.split(' ')[0]} ${colorClass.split(' ')[1]}">
+                            ${getIconHtml(iconName, 18)}
+                        </div>
+
+                        <!-- Card: 簡約的白色卡片 (在粉色背景上浮現) -->
+                        <div class="bg-white rounded-xl shadow-lg border border-gray-100 transition-all duration-300 hover:shadow-xl overflow-hidden mb-8">
+                            <!-- Image Placeholder -->
+                            <div class="h-32 w-full overflow-hidden">
+                                <img 
+                                    src="${activity.image || 'https://placehold.co/400x120/f9f9f9/a3a3a3?text=Custom+Activity'}" 
+                                    alt="${activity.title}" 
+                                    class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                    onerror="this.onerror=null;this.src='https://placehold.co/400x120/f9f9f9/a3a3a3?text=Image+Load+Error';"
+                                >
+                            </div>
+
+                            <div class="p-4 relative">
+                                <!-- Delete Button -->
+                                <button onclick="deleteActivity(${activeDay}, '${activity.id}', '${activity.title}')" class="absolute top-2 right-2 text-gray-300 hover:text-red-500 transition-colors p-1 rounded-lg bg-white/70 hover:bg-red-50">
+                                    ${getIconHtml('x', 16)}
+                                </button>
+
+                                <div class="flex justify-between items-start mb-2 pt-1">
+                                    <div class="flex items-center text-gray-500 text-sm font-semibold">
+                                        ${getIconHtml('clock', 14, 'mr-1')}
+                                        ${activity.time}
+                                    </div>
+                                    <span class="text-xs px-3 py-1 rounded-full font-medium border ${colorClass}">
+                                        ${typeLabel}
+                                    </span>
+                                </div>
+                                
+                                <h3 class="text-lg font-bold text-gray-800 mb-2 group-hover:text-rose-600 transition-colors">
+                                    ${activity.title}
+                                </h3>
+                                
+                                <p class="text-gray-600 text-sm mb-4 leading-relaxed">
+                                    ${activity.description}
+                                </p>
+
+                                <!-- Notes Section: 淺色背景 + 柔和邊框 (使用 rose-50) -->
+                                <div class="mt-4 pt-4 border-t border-gray-100">
+                                    <div class="flex justify-between items-center mb-2">
+                                        <h4 class="text-sm font-semibold text-gray-600 flex items-center">
+                                            ${getIconHtml('notebook-text', 14, 'mr-1 text-gray-500')}
+                                            備註:
+                                        </h4>
+                                        <button 
+                                            onclick="showEditNotesModal(${activeDay}, '${activity.id}')"
+                                            class="text-xs text-rose-500 hover:text-rose-700 flex items-center transition-colors font-medium"
+                                        >
+                                            ${getIconHtml('edit-2', 12, 'mr-1')} 
+                                            編輯
+                                        </button>
+                                    </div>
+                                    <p class="text-sm text-gray-700 p-3 rounded-lg ${activity.notes ? 'bg-rose-50 border border-rose-200' : 'text-gray-400 bg-gray-50 border border-gray-100'}">
+                                        ${activity.notes || '點擊「編輯」加入您的提醒或資訊。'}
+                                    </p>
+                                </div>
+
+                                <a 
+                                    href="${getMapLink(activity.mapQuery)}"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="mt-4 flex items-center justify-center w-full py-2 bg-gray-50 hover:bg-rose-50 text-gray-600 hover:text-rose-600 rounded-lg text-sm font-medium transition-colors border border-gray-200 hover:border-rose-300 shadow-sm"
+                                >
+                                    ${getIconHtml('map', 16, 'mr-2')}
+                                    查看地圖
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <!-- Day Tabs -->
+                <div class="flex bg-white shadow-sm shrink-0 overflow-x-auto no-scrollbar sticky top-0 z-10 border-b border-gray-200">
+                    ${dayTabs}
+                </div>
+                <!-- Timeline Content -->
+                <div class="p-4 pb-20 animate-fade-in">
+                    <div class="mb-6 pt-2">
+                        <h2 class="text-xl font-bold text-gray-800 mb-2">${currentDayData.title}</h2>
+                        <div class="h-1 w-10 bg-rose-500 rounded-full"></div>
+                    </div>
+                    <div class="space-y-0 relative">
+                        ${activitiesHtml}
+                    </div>
+                    
+                    <!-- Add Activity Button: 溫暖的玫瑰色 -->
+                    <div class="mt-8 text-center">
+                        <button 
+                            onclick="showAddActivityModal(${activeDay})" 
+                            class="flex items-center justify-center px-6 py-3 bg-rose-600 text-white rounded-full font-semibold shadow-lg shadow-rose-200 hover:bg-rose-700 transition-all transform hover:scale-[1.02] active:scale-[0.98] text-sm"
+                        >
+                            ${getIconHtml('plus-circle', 18, 'mr-2')}
+                            + 新增活動 (Day ${activeDay})
+                        </button>
+                    </div>
+
+                    <div class="mt-8 text-center text-gray-400 text-xs pb-4">
+                        🌸 感謝您的使用，祝您旅途愉快 🌸
+                    </div>
+                </div>
+            `;
+        };
+
+        const renderFerry = () => {
+            // Ferry Accent color changed to Teal
+            const renderFerryTimes = (times) => times.map((item, idx) => `
+                <div key="${idx}" class="flex items-center justify-between p-4 rounded-xl border transition-all ${item.recommend ?
+                    'bg-teal-50 border-teal-300 shadow-md' : 'bg-white border-gray-200 hover:bg-gray-50'
+                } mb-3">
+                    <div class="flex items-center">
+                        <div class="w-2 h-2 rounded-full ${item.recommend ? 'bg-teal-500' : 'bg-gray-300'} mr-3"></div>
+                        <span class="text-xl font-bold ${item.recommend ? 'text-teal-700' : 'text-gray-700'}">${item.time}</span>
+                    </div>
+                    ${item.recommend ? 
+                        `<span class="text-sm font-medium text-teal-600 bg-teal-200 px-3 py-1 rounded-full">${item.note}</span>` : 
+                        '<span class="text-sm text-gray-400">一般班次</span>'
+                    }
+                </div>
+            `).join('');
+
+            return `
+                <div class="p-4 animate-fade-in">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center">
+                        ${getIconHtml('anchor', 24, 'mr-2 text-teal-600')}
+                        相島渡輪時刻表
+                    </h2>
+                    <p class="text-gray-600 mb-6 border-l-4 border-teal-300 pl-3">
+                        地點：新宮港 ↔ 相島。單程約 17 分鐘。<br>
+                        <span class="font-semibold text-sm text-red-500">
+                           注意：船票需在窗口購買，只收現金！請提前到達。
+                        </span>
+                    </p>
+
+                    <!-- 去程：新宮港 → 相島 -->
+                    <div class="mb-8 p-4 bg-teal-50 rounded-xl shadow-inner border border-teal-200">
+                        <h3 class="text-lg font-bold text-teal-700 mb-3 flex items-center">
+                            ${getIconHtml('arrow-right-circle', 18, 'mr-2')}
+                            去程：新宮港 → 相島
+                        </h3>
+                        ${renderFerryTimes(ferrySchedule.toIsland)}
+                    </div>
+
+                    <!-- 回程：相島 → 新宮港 -->
+                    <div class="mb-8 p-4 bg-teal-50 rounded-xl shadow-inner border border-teal-200">
+                        <h3 class="text-lg font-bold text-teal-700 mb-3 flex items-center">
+                            ${getIconHtml('arrow-left-circle', 18, 'mr-2')}
+                            回程：相島 → 新宮港
+                        </h3>
+                        ${renderFerryTimes(ferrySchedule.fromIsland)}
+                    </div>
+                    
+                    <div class="text-center text-gray-400 text-xs pb-4">
+                        資料來源：新宮町公所網站 (請以現場公告為準)
+                    </div>
+                </div>
+            `;
+        };
+
+        const renderPacking = () => {
+            // Helper to render individual list items
+            const renderListItems = (items) => items.map(item => `
+                <div key="${item.id}" class="flex items-center bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-3 transition-all hover:shadow-md">
+                    <input 
+                        type="checkbox" 
+                        id="item-${item.id}" 
+                        ${item.checked ? 'checked' : ''} 
+                        onchange="togglePackingItem('${item.id}')"
+                        class="form-checkbox h-5 w-5 text-gray-600 border-gray-300 rounded-md transition duration-150 ease-in-out cursor-pointer checked:bg-gray-600 checked:border-gray-600 focus:ring-gray-500 mr-4"
+                    >
+                    <label 
+                        for="item-${item.id}" 
+                        class="flex-1 text-gray-800 text-base cursor-pointer ${item.checked ? 'line-through text-gray-400 italic' : 'font-medium'}"
+                    >
+                        ${item.text}
+                    </label>
+                    <button onclick="deletePackingItem('${item.id}', '${item.text}')" class="text-gray-300 hover:text-red-500 ml-3 transition-colors p-1 rounded-full hover:bg-red-50">
+                        ${getIconHtml('trash-2', 16)}
+                    </button>
+                </div>
+            `).join('');
+
+            // Render the entire categorized list
+            const categorizedListHtml = packingList.map(categoryGroup => `
+                <div class="mb-8 p-4 bg-white rounded-xl shadow-lg border border-gray-100">
+                    <h3 class="text-xl font-bold text-gray-700 mb-4 border-l-4 border-gray-500 pl-3 flex items-center">
+                        ${getIconHtml('package', 18, 'mr-2 text-gray-600')}
+                        ${categoryGroup.category}
+                    </h3>
+                    <div class="space-y-3">
+                        ${renderListItems(categoryGroup.items)}
+                    </div>
+                </div>
+            `).join('');
+
+            // 取得所有分類名稱，用於新增項目的下拉選單
+            const categoryOptions = packingList.map(group => 
+                `<option value="${group.category}">${group.category}</option>`
+            ).join('');
+
+
+            return `
+                <div class="p-4 pb-20 animate-fade-in">
+                    <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center">
+                        ${getIconHtml('list-checks', 24, 'mr-2 text-gray-700')}
+                        旅行打包清單
+                    </h2>
+                    <p class="text-gray-600 mb-6 border-l-4 border-gray-300 pl-3">
+                        出發前勾選，確保萬無一失！清單已按大項目分類。
+                    </p>
+
+                    <!-- 清單區塊 (現在是分類列表) -->
+                    <div id="packing-list-items" class="mb-8 space-y-4">
+                        ${categorizedListHtml}
+                    </div>
+
+                    <!-- 新增項目表單 -->
+                    <div class="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-200 shadow-inner">
+                        <h3 class="text-lg font-semibold text-gray-700 mb-3 flex items-center">
+                            ${getIconHtml('plus-square', 18, 'mr-2')}
+                            新增項目
+                        </h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label for="newPackingItemCategory" class="block text-sm font-medium text-gray-700 mb-1">選擇分類</label>
+                                <select 
+                                    id="newPackingItemCategory" 
+                                    class="w-full p-3 border border-gray-300 rounded-lg focus:ring-gray-500 focus:border-gray-500 bg-white"
+                                >
+                                    ${categoryOptions}
+                                </select>
+                            </div>
+                            <div>
+                                <label for="newPackingItemText" class="block text-sm font-medium text-gray-700 mb-1">項目名稱</label>
+                                <div class="flex space-x-2">
+                                    <input 
+                                        type="text" 
+                                        id="newPackingItemText" 
+                                        placeholder="輸入要新增的物品名稱..." 
+                                        class="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-gray-500 focus:border-gray-500 transition duration-150"
+                                        onkeypress="if(event.key === 'Enter') addPackingItem()"
+                                    >
+                                    <button 
+                                        onclick="addPackingItem()" 
+                                        class="px-4 py-3 bg-gray-600 text-white rounded-lg font-semibold shadow-md hover:bg-gray-700 transition-colors active:scale-95"
+                                    >
+                                        加入
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mt-8 text-center text-gray-400 text-xs pb-4">
+                        💡 打包越少，旅途越輕鬆 💡
+                    </div>
+                </div>
+            `;
+        };
+
+
+        const renderContent = () => {
+            const contentDiv = document.getElementById('main-content');
+            let contentHtml = '';
+
+            switch (activeTab) {
+                case 'itinerary':
+                    contentHtml = renderItinerary();
+                    break;
+                case 'ferry':
+                    contentHtml = renderFerry();
+                    break;
+                case 'packing':
+                    contentHtml = renderPacking();
+                    break;
+                default:
+                    contentHtml = `<div class="p-4 text-center text-red-500">錯誤：找不到此頁面。</div>`;
+            }
+
+            contentDiv.innerHTML = contentHtml;
+            // Re-render icons after updating innerHTML
+            lucide.createIcons();
+        };
+
+        const initializeApp = () => {
+            loadState();
+            renderNavigation();
+            renderContent();
+        };
+
+        // ====================================================================
+        // 4. INTERACTION FUNCTIONS (互動函式)
+        // ====================================================================
+
+        const setActiveTab = (tabId) => {
+            activeTab = tabId;
+            saveState();
+            renderNavigation();
+            renderContent();
+        };
+
+        const setActiveDay = (day) => {
+            activeDay = day;
+            saveState();
+            renderContent();
+        };
+
+        // --- Packing List Functions ---
+
+        // 已使用 findPackingItem 簡化
+        const togglePackingItem = (id) => {
+            const { item } = findPackingItem(id);
+            if (item) {
+                item.checked = !item.checked;
+                saveState();
+                renderContent(); // Re-render the packing list
+            }
+        };
+
+        const addPackingItem = () => {
+            const input = document.getElementById('newPackingItemText');
+            const select = document.getElementById('newPackingItemCategory');
+            const text = input.value.trim();
+            const categoryName = select.value; // 取得選中的分類名稱
+
+            if (!text) {
+                // 不使用 alert(), 可以在 UI 上顯示錯誤訊息, 這裡簡化為 console log
+                console.error("請輸入項目名稱！");
+                return;
+            }
+
+            const newItem = {
+                id: crypto.randomUUID(),
+                text: text,
+                checked: false
+            };
+            
+            // 尋找目標分類群組
+            let categoryGroup = packingList.find(g => g.category === categoryName);
+            
+            if (categoryGroup) {
+                categoryGroup.items.push(newItem);
+            } else {
+                // 如果找不到分類 (理論上不會發生，除非數據被清空)，則加到第一個分類
+                packingList[0].items.push(newItem);
+            }
+
+            input.value = ''; // Clear input
+            saveState();
+            renderContent(); // Re-render to show new item
+        };
+
+        const deletePackingItem = (id, name) => {
+            showCustomModal({
+                title: '確認刪除',
+                body: `確定要從清單中移除「${name}」嗎？`,
+                confirmText: '移除',
+                cancelText: '取消',
+                onConfirm: () => {
+                    const { categoryGroup } = findPackingItem(id);
+                    if (categoryGroup) {
+                        // 過濾掉要刪除的項目
+                        categoryGroup.items = categoryGroup.items.filter(item => item.id !== id);
+                        saveState();
+                        renderContent();
+                    }
+                    closeModal();
+                }
+            });
+        };
+
+        // --- Itinerary Functions ---
+
+        const findActivity = (dayNum, activityId) => {
+            const day = itinerary.find(d => d.day === dayNum);
+            if (day) {
+                return day.activities.find(a => a.id === activityId);
+            }
+            return null;
+        };
+
+        const updateActivityNotes = (dayNum, activityId, newNotes) => {
+            const activity = findActivity(dayNum, activityId);
+            if (activity) {
+                activity.notes = newNotes;
+                saveState();
+                renderContent();
+            }
+        };
+
+        const deleteActivity = (dayNum, activityId, title) => {
+            showCustomModal({
+                title: '確認刪除行程',
+                body: `確定要從 Day ${dayNum} 移除活動「${title}」嗎？`,
+                confirmText: '移除',
+                cancelText: '取消',
+                onConfirm: () => {
+                    const day = itinerary.find(d => d.day === dayNum);
+                    if (day) {
+                        day.activities = day.activities.filter(a => a.id !== activityId);
+                        saveState();
+                        renderContent();
+                    }
+                    closeModal();
+                }
+            });
+        };
+
+        const addActivity = (dayNum, newActivity) => {
+            const day = itinerary.find(d => d.day === dayNum);
+            if (day) {
+                day.activities.push({
+                    id: crypto.randomUUID(),
+                    ...newActivity,
+                    time: newActivity.time || '待定',
+                    description: newActivity.description || '無描述',
+                    mapQuery: newActivity.mapQuery || newActivity.title,
+                    image: newActivity.image || 'https://placehold.co/400x120/f9f9f9/a3a3a3?text=New+Activity',
+                    notes: newActivity.notes || ''
+                });
+                // 簡易排序，確保時間順序
+                day.activities.sort((a, b) => a.time.localeCompare(b.time));
+                saveState();
+                renderContent();
+            }
+        };
+
+
+        // ====================================================================
+        // 5. MODAL FUNCTIONS (彈出視窗函式)
+        // ====================================================================
+        
+        const modalBackdrop = document.getElementById('modal-backdrop');
+        const modalContent = document.getElementById('modal-content');
+
+        const closeModal = (event) => {
+            if (event && event.target !== modalBackdrop) return;
+            modalBackdrop.classList.remove('open');
+            // Clear content after animation
+            setTimeout(() => {
+                modalContent.innerHTML = '';
+            }, 300); 
+        };
+
+        const openModal = (htmlContent) => {
+            modalContent.innerHTML = htmlContent;
+            lucide.createIcons();
+            modalBackdrop.classList.add('open');
+        };
+
+        // Custom Confirmation Modal (用於刪除或確認動作)
+        const showCustomModal = ({ title, body, confirmText, cancelText, onConfirm }) => {
+            const html = `
+                <h3 class="text-lg font-bold text-gray-800 mb-4">${title}</h3>
+                <p class="text-gray-700 mb-6">${body}</p>
+                <div class="flex justify-end space-x-3">
+                    <button 
+                        onclick="closeModal()" 
+                        class="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                    >
+                        ${cancelText}
+                    </button>
+                    <button 
+                        onclick="onConfirm()" 
+                        class="px-4 py-2 text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition-colors font-medium shadow-md"
+                    >
+                        ${confirmText}
+                    </button>
+                </div>
+            `;
+            openModal(html);
+        };
+
+        // Modal for editing notes
+        const showEditNotesModal = (dayNum, activityId) => {
+            const activity = findActivity(dayNum, activityId);
+            if (!activity) return;
+
+            const modalHtml = `
+                <h3 class="text-xl font-bold text-gray-800 mb-2">編輯備註</h3>
+                <p class="text-sm text-gray-500 mb-4">活動：${activity.title} (${activity.time})</p>
+                
+                <textarea 
+                    id="note-textarea" 
+                    rows="4" 
+                    class="w-full p-3 border border-gray-300 rounded-lg focus:ring-rose-500 focus:border-rose-500 transition duration-150 resize-none"
+                    placeholder="輸入您的重要提醒或相關資訊..."
+                >${activity.notes}</textarea>
+                
+                <div class="flex justify-end space-x-3 mt-4">
+                    <button 
+                        onclick="closeModal()" 
+                        class="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                    >
+                        取消
+                    </button>
+                    <button 
+                        onclick="saveNotes(${dayNum}, '${activityId}')" 
+                        class="px-4 py-2 text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition-colors font-medium shadow-md"
+                    >
+                        儲存備註
+                    </button>
+                </div>
+            `;
+            openModal(modalHtml);
+        };
+
+        const saveNotes = (dayNum, activityId) => {
+            const textarea = document.getElementById('note-textarea');
+            const newNotes = textarea.value.trim();
+            updateActivityNotes(dayNum, activityId, newNotes);
+            closeModal();
+        };
+
+        // Modal for adding a new activity
+        const showAddActivityModal = (dayNum) => {
+            const activityTypes = [
+                { value: 'sightseeing', label: '景點', icon: 'camera' },
+                { value: 'food', label: '美食', icon: 'utensils' },
+                { value: 'shopping', label: '購物', icon: 'shopping-bag' },
+                { value: 'transport', label: '交通', icon: 'train' },
+                { value: 'activity', label: '其他活動', icon: 'info' }
+            ];
+
+            const typeOptions = activityTypes.map(type => `
+                <option value="${type.value}" data-icon="${type.icon}">${type.label}</option>
+            `).join('');
+
+
+            const modalHtml = `
+                <h3 class="text-xl font-bold text-gray-800 mb-4">新增活動 (Day ${dayNum})</h3>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label for="newTitle" class="block text-sm font-medium text-gray-700 mb-1">活動名稱 *</label>
+                        <input type="text" id="newTitle" placeholder="如：一蘭拉麵" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-rose-500 focus:border-rose-500">
+                    </div>
+                    <div>
+                        <label for="newTime" class="block text-sm font-medium text-gray-700 mb-1">預計時間</label>
+                        <input type="time" id="newTime" value="12:00" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-rose-500 focus:border-rose-500">
+                    </div>
+                    <div>
+                        <label for="newType" class="block text-sm font-medium text-gray-700 mb-1">活動類型</label>
+                        <select id="newType" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-rose-500 focus:border-rose-500 bg-white">
+                            ${typeOptions}
+                        </select>
+                    </div>
+                    <div>
+                        <label for="newDescription" class="block text-sm font-medium text-gray-700 mb-1">詳細描述</label>
+                        <textarea id="newDescription" rows="2" placeholder="簡短描述活動內容" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-rose-500 focus:border-rose-500 resize-none"></textarea>
+                    </div>
+                    <div>
+                        <label for="newMapQuery" class="block text-sm font-medium text-gray-700 mb-1">地圖搜尋關鍵字</label>
+                        <input type="text" id="newMapQuery" placeholder="如：Ichiran Tenjin" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-rose-500 focus:border-rose-500">
+                    </div>
+                </div>
+                
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button 
+                        onclick="closeModal()" 
+                        class="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                    >
+                        取消
+                    </button>
+                    <button 
+                        onclick="saveNewActivity(${dayNum})" 
+                        class="px-4 py-2 text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition-colors font-medium shadow-md"
+                    >
+                        新增活動
+                    </button>
+                </div>
+            `;
+            openModal(modalHtml);
+        };
+
+        const saveNewActivity = (dayNum) => {
+            const title = document.getElementById('newTitle').value.trim();
+            const time = document.getElementById('newTime').value.trim();
+            const type = document.getElementById('newType').value;
+            const description = document.getElementById('newDescription').value.trim();
+            const mapQuery = document.getElementById('newMapQuery').value.trim() || title; // Fallback to title if map query is empty
+
+            if (!title) {
+                // 這裡應該用自定義的 UI 顯示錯誤，但為了簡潔保持 console log
+                console.error("活動名稱是必填的！"); 
+                return;
+            }
+
+            const newActivity = {
+                title,
+                time,
+                type,
+                description,
+                mapQuery,
+                image: '', // Use default placeholder
+                notes: ''
+            };
+
+            addActivity(dayNum, newActivity);
+            closeModal();
+        };
+
+
+        // ====================================================================
+        // 6. INITIALIZATION (初始化)
+        // ====================================================================
+
+        document.addEventListener('DOMContentLoaded', initializeApp);
+
+    </script>
+</body>
+</html>
+
+
