@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>福岡旅遊小幫手 - 最終完美修復版</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons CDN for visual elements -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Custom scrollbar styles */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .scroll-container { flex-grow: 1; overflow-y: auto; }
+        
+        /* Define fade-in animation */
+        .animate-fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Modal Backdrop */
+        .modal-backdrop {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.4); 
+            display: flex; justify-content: center; align-items: center;
+            z-index: 50; opacity: 0; visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .modal-backdrop.open { opacity: 1; visibility: visible; }
+        .modal-content {
+            background: white; padding: 1.5rem; border-radius: 0.75rem;
+            max-width: 90%; width: 480px; max-height: 90vh; 
+            overflow-y: auto; transform: translateY(-30px);
+            transition: transform 0.3s ease; box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1); 
+        }
+        .modal-backdrop.open .modal-content { transform: translateY(0); }
+
+        /* Sub-item specific styles */
+        .sub-item-checkbox:checked + label { text-decoration: line-through; color: #9ca3af; }
+
+        /* Sync Indicator */
+        .sync-status {
+            position: fixed; bottom: 20px; right: 20px;
+            background: rgba(255, 255, 255, 0.9); padding: 8px 12px;
+            border-radius: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            font-size: 12px; color: #10b981; /* Green */
+            display: flex; align-items: center; gap: 6px;
+            z-index: 60; transition: opacity 0.5s; pointer-events: none;
+        }
+        .sync-status.saving { color: #f59e0b; /* Amber */ }
+
+        /* LLM Card */
+        .llm-suggestion-card {
+            border: 1px solid #e5e5e5; padding: 1rem; border-radius: 0.75rem;
+            background-color: #f0f9ff; margin-bottom: 1rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .llm-suggestion-card h4 { font-weight: 700; color: #0c4a6e; display: flex; align-items: center; gap: 8px; margin-bottom: 0.5rem; }
+        .llm-suggestion-card p { font-size: 0.875rem; color: #1e293b; line-height: 1.5; white-space: pre-wrap; }
+
+        /* 連結樣式修正 */
+        .note-content a {
+            color: #2563eb; /* blue-600 */
+            text-decoration: underline;
+            font-weight: 600;
+            cursor: pointer;
+            position: relative;
+            z-index: 20; /* Higher z-index to ensure clickable */
+        }
+        .note-content a:hover { color: #1d4ed8; /* blue-700 */ }
+    </style>
+</head>
+<body class="bg-pink-50 antialiased h-screen flex flex-col">
+
+    <!-- 主容器 -->
+    <div id="app" class="max-w-md mx-auto bg-white h-full flex flex-col font-sans text-gray-800 shadow-2xl overflow-hidden relative">
+        
+        <!-- Header -->
+        <div id="header" class="bg-gradient-to-br from-rose-400 to-pink-300 p-6 text-white shrink-0 shadow-lg z-20">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h1 class="text-2xl font-bold tracking-wide">福岡櫻花紀行 (AI)</h1>
+                    <p class="text-pink-100 text-sm mt-1">雲端同步版 • 4天3夜</p>
+                    <div class="text-xs text-pink-100/70 flex items-center gap-1 mt-3">
+                        <i data-lucide="key-round" class="w-3 h-3"></i>
+                        <span id="user-id-display">連線中...</span>
+                    </div>
+                </div>
+                <div class="p-2 rounded-xl border border-white/40 backdrop-blur-sm">
+                    <i data-lucide="sparkles" class="w-6 h-6 text-white"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div id="main-content" class="scroll-container z-10 bg-pink-50">
+            <div class="flex items-center justify-center h-full text-gray-500">
+                <div class="text-center">
+                    <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500 mx-auto mb-2"></div>
+                    <p>正在同步雲端資料...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Navigation -->
+        <div id="navigation" class="bg-white border-t border-gray-100 shrink-0 w-full flex justify-around items-center h-16 z-30 shadow-t-lg">
+            <!-- Navigation buttons will be rendered here by JavaScript -->
+        </div>
+        
+        <!-- Sync Status Indicator -->
+        <div id="syncStatus" class="sync-status hidden">
+            <i data-lucide="cloud-check" class="w-4 h-4"></i>
+            <span>已同步</span>
+        </div>
+
+        <!-- Modal Structure -->
+        <div id="modal-backdrop" class="modal-backdrop" onclick="closeModal(event)">
+            <div id="modal-content" class="modal-content" onclick="event.stopPropagation()">
+                <!-- Modal content will be injected here -->
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ⚠️ 部署時，請將下方的 apiKey 留空，Canvas 會自動注入
+        const GEMINI_API_KEY = "";
+        const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent";
+        
+        const customFirebaseConfig = {
+            apiKey: "AIzaSyAJ_b9BiX1zT7WFu8f08uoKxeV8vgDUHz4",
+            authDomain: "fuktrip.firebaseapp.com",
+            projectId: "fuktrip",
+            storageBucket: "fuktrip.firebasestorage.app",
+            messagingSenderId: "663462561018",
+            appId: "1:663462561018:web:d0c9f00c9fed0253a2b543",
+            measurementId: "G-KME94X3EKH"
+        };
+        
+        const envConfig = (typeof __firebase_config !== 'undefined' && __firebase_config) ? JSON.parse(__firebase_config) : {};
+        const firebaseConfig = Object.keys(envConfig).length > 0 ? envConfig : customFirebaseConfig;
+        const appId = (typeof __app_id !== 'undefined' && __app_id) ? __app_id : firebaseConfig.projectId;
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const tripDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'fukuoka_trip', 'shared_plan');
+
+        let activeTab = localStorage.getItem('local_activeTab') || 'itinerary';
+        let activeDay = parseInt(localStorage.getItem('local_activeDay') || '1');
+        let itinerary = []; 
+        let packingList = [];
+        let isDataLoaded = false;
+        let lastSnapshotJson = ""; 
+        let tempImageBase64 = '';
+
+        let llmLoading = { type: null, id: null };
+
+        const initialPackingList = [
+            { category: '文件與金錢', items: [{ id: 'p1', text: '護照', checked: false }, { id: 'p2', text: '日幣現金', checked: false }] },
+            { category: '電子產品', items: [{ id: 'p4', text: '網卡/SIM卡', checked: false }, { id: 'p5', text: '行動電源', checked: false }] },
+            { category: '衣物與用品', items: [{ id: 'p7', text: '好走的鞋', checked: false }, { id: 'p8', text: '雨具', checked: false }] },
+            { category: '藥品', items: [{ id: 'p10', text: '常備藥', checked: false }] }
+        ];
+
+        const initialItineraryData = [
+            { day: 1, date: "4/6 (一)", title: "抵達福岡 - FUK", aiSummary: "", activities: [
+                { id: 'act1', time: "14:00", title: "抵達福岡機場", type: "plane", description: "領取行李及網卡，搭乘地鐵前往飯店。", mapQuery: "福岡機場國際線", subItems: [{ id: 's1', text: '購買地鐵一日券', checked: false }], image: '', notes: '機場兌換票券\n[西鐵電車官網](https://www.nishitetsu.jp/)' },
+                { id: 'act2', time: "16:00", title: "中洲川端商店街", type: "sightseeing", description: "到飯店 Check-in 後，前往中洲川端商店街逛逛。", mapQuery: "中洲川端商店街", subItems: [], image: 'https://placehold.co/400x120/f9f9f9/a3a3a3?text=商店街', notes: '' }
+            ]},
+            { day: 2, date: "4/7 (二)", title: "太宰府 & 賞櫻", aiSummary: "", activities: [
+                { id: 'act3', time: "09:00", title: "太宰府天滿宮", type: "sightseeing", description: "參拜學問之神，順道吃梅枝餅。", mapQuery: "太宰府天滿宮", subItems: [], image: '', notes: '' },
+                { id: 'act4', time: "13:00", title: "暖暮拉麵 (太宰府店)", type: "food", description: "享用在地人氣拉麵。", mapQuery: "暖暮拉麵 太宰府", subItems: [], image: '', notes: '' }
+            ]},
+            { day: 3, date: "4/8 (三)", title: "貓島 & 拉麵", aiSummary: "", activities: [
+                { id: 'act5', time: "09:20", title: "相島渡輪", type: "ferry", description: "搭乘渡輪前往相島看貓咪。", mapQuery: "相島渡輪", subItems: [{ id: 's2', text: '帶貓零食', checked: false }, { id: 's3', text: '防曬乳', checked: false }], image: '', notes: '[相島渡輪時刻表](https://ferry.ai/schedule)\n建議提早 30 分鐘排隊買票' },
+                { id: 'act6', time: "13:50", title: "返回新宮港", type: "ferry", description: "搭乘渡輪返回福岡。", mapQuery: "新宮港", subItems: [], image: '', notes: '' }
+            ]},
+            { day: 4, date: "4/9 (四)", title: "大濠 & 返程", aiSummary: "", activities: [
+                { id: 'act7', time: "10:00", title: "大濠公園", type: "sightseeing", description: "在湖邊散步，享受早晨時光。", mapQuery: "大濠公園", subItems: [], image: '', notes: '' },
+                { id: 'act8', time: "13:00", title: "前往機場", type: "plane", description: "預留時間搭地鐵到機場。", mapQuery: "福岡機場國際線", subItems: [], image: '', notes: '' }
+            ]}
+        ];
+        
+        const ferrySchedule = {
+            toIsland: [{ time: "07:50", recommend: false }, { time: "09:20", recommend: true, note: "推薦" }, { time: "11:30", recommend: false }, { time: "14:30", recommend: false }, { time: "17:40", recommend: false }],
+            fromIsland: [{ time: "07:00", recommend: false }, { time: "08:40", recommend: false }, { time: "10:50", recommend: false }, { time: "13:50", recommend: true, note: "推薦" }, { time: "16:00", recommend: false }, { time: "17:30", recommend: false }]
+        };
+
+        const ACTIVITY_TYPES = {
+            plane: { label: "航班/交通", icon: "plane", color: "bg-blue-500/10 text-blue-700 border-blue-200" },
+            sightseeing: { label: "觀光/景點", icon: "map-pin", color: "bg-rose-500/10 text-rose-700 border-rose-200" },
+            food: { label: "美食/餐廳", icon: "knife-hand", color: "bg-amber-500/10 text-amber-700 border-amber-200" },
+            ferry: { label: "渡輪/船班", icon: "ship", color: "bg-teal-500/10 text-teal-700 border-teal-200" },
+            shopping: { label: "購物", icon: "shopping-bag", color: "bg-purple-500/10 text-purple-700 border-purple-200" },
+            transport: { label: "交通", icon: "train", color: "bg-teal-500/10 text-teal-700 border-teal-200" },
+            activity: { label: "活動", icon: "info", color: "bg-gray-500/10 text-gray-700 border-gray-200" },
+            hotel: { label: "住宿", icon: "moon", color: "bg-pink-500/10 text-pink-700 border-pink-200" }
+        };
+
+        // --- Auth & Sync ---
+        const initApp = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth failed:", error);
+                document.getElementById('main-content').innerHTML = `<div class="p-8 text-center text-red-500">無法連線到資料庫，請重新整理。</div>`;
+                return;
+            }
+
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    document.getElementById('user-id-display').textContent = `ID: ${user.uid.substring(0,6)}...`;
+                    
+                    onSnapshot(tripDocRef, (docSnapshot) => {
+                        if (docSnapshot.exists()) {
+                            const data = docSnapshot.data();
+                            
+                            // **比對資料是否真的變更**
+                            const currentJson = JSON.stringify(data);
+                            if (currentJson === lastSnapshotJson) {
+                                return; 
+                            }
+                            lastSnapshotJson = currentJson;
+
+                            itinerary = data.itinerary || initialItineraryData;
+                            packingList = data.packingList || initialPackingList;
+                        } else {
+                            itinerary = initialItineraryData;
+                            packingList = initialPackingList;
+                            saveToCloud();
+                        }
+                        isDataLoaded = true;
+                        renderApp();
+                    });
+                }
+            });
+            renderApp();
+        };
+
+        const saveToCloud = async () => {
+            if (!auth.currentUser) return;
+            showSyncStatus('saving');
+            try {
+                // 確保儲存前先排序
+                itinerary.forEach(day => {
+                    if (day.activities) {
+                        day.activities.sort((a, b) => a.time.localeCompare(b.time));
+                    }
+                });
+
+                const dataToSave = {
+                    itinerary: itinerary,
+                    packingList: packingList,
+                    lastUpdated: new Date().toISOString()
+                };
+                
+                // 更新本地 Hash，避免自己觸發自己的 onSnapshot
+                lastSnapshotJson = JSON.stringify(dataToSave);
+                
+                await setDoc(tripDocRef, dataToSave, { merge: false });
+                showSyncStatus('synced');
+            } catch (e) {
+                console.error("Save failed:", e);
+                showSyncStatus('error');
+            }
+        };
+
+        const saveLocalState = () => {
+            localStorage.setItem('local_activeTab', activeTab);
+            localStorage.setItem('local_activeDay', activeDay);
+        };
+
+        const showSyncStatus = (status) => {
+            const el = document.getElementById('syncStatus');
+            el.classList.remove('hidden', 'saving');
+            el.style.opacity = '1';
+            if (status === 'saving') {
+                el.innerHTML = `<div class="animate-spin rounded-full h-3 w-3 border-b-2 border-amber-500"></div><span class="text-amber-500">儲存中...</span>`;
+                el.classList.add('saving');
+            } else if (status === 'synced') {
+                el.innerHTML = `<i data-lucide="cloud-check" class="w-4 h-4"></i><span>已同步</span>`;
+                el.className = 'sync-status';
+                setTimeout(() => { el.style.opacity = '0'; }, 2000);
+            } else {
+                el.innerHTML = `<span class="text-red-500">同步失敗</span>`;
+            }
+            if (window.lucide) lucide.createIcons();
+        };
+
+        // --- Gemini AI ---
+        const callGemini = async (payload) => {
+            const apiKey = ""; 
+            try {
+                const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error('API Error');
+                return await response.json();
+            } catch (error) {
+                console.error("Gemini API Error:", error);
+                throw error;
+            }
+        };
+
+        window.generateSubItems = async (dayNum, actId) => {
+            const day = itinerary.find(d => d.day === dayNum);
+            const act = day?.activities.find(a => a.id === actId);
+            if (!act) return;
+            llmLoading = { type: 'subitems', id: actId };
+            renderApp();
+            const prompt = `請為這個旅遊行程：「${act.title} (${act.description})」提供 3-5 個簡短、具體的待辦事項或建議。請以 JSON 陣列格式回傳。`;
+            try {
+                const result = await callGemini({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: { responseMimeType: "application/json" }
+                });
+                const suggestions = JSON.parse(result.candidates[0].content.parts[0].text);
+                if (Array.isArray(suggestions)) {
+                    if (!act.subItems) act.subItems = [];
+                    suggestions.forEach(text => act.subItems.push({ id: crypto.randomUUID(), text: text, checked: false }));
+                    saveToCloud();
+                }
+            } catch (e) { alert("AI 暫時無法提供建議，請稍後再試。"); } 
+            finally { llmLoading = { type: null, id: null }; renderApp(); }
+        };
+
+        window.generateDaySummary = async (dayNum) => {
+            const day = itinerary.find(d => d.day === dayNum);
+            if (!day) return;
+            llmLoading = { type: 'summary', id: dayNum };
+            renderApp();
+            const scheduleText = day.activities.map(a => `${a.time} ${a.title}`).join('\n');
+            const prompt = `請擔任專業導遊，針對以下行程提供簡短總結與建議 (100字以內)：\n${scheduleText}`;
+            try {
+                const result = await callGemini({ contents: [{ parts: [{ text: prompt }] }] });
+                day.aiSummary = result.candidates[0].content.parts[0].text;
+                saveToCloud();
+            } catch (e) { alert("AI 暫時無法分析行程，請稍後再試。"); } 
+            finally { llmLoading = { type: null, id: null }; renderApp(); }
+        };
+
+        // --- Helpers ---
+        const getIconHtml = (name, size, cls = '') => `<i data-lucide="${name}" class="w-${size/4} h-${size/4} ${cls}"></i>`;
+        const getIconName = (type) => ACTIVITY_TYPES[type]?.icon || 'pin';
+        const getTypeLabel = (type) => ACTIVITY_TYPES[type]?.label || '其他';
+        const getTypeColor = (type) => ACTIVITY_TYPES[type]?.color || 'bg-gray-100 text-gray-500 border-gray-200';
+        const getMapLink = (query) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+
+        // 完美修復版 formatNotes：使用佔位符確保連結不被破壞
+        const formatNotes = (text) => {
+            if (!text) return '<span class="text-gray-400 italic">點擊「編輯」加入連結或提醒...</span>';
+
+            // 1. Escape HTML special characters
+            let content = text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+
+            // 2. Extract and tokenize Markdown links [Text](URL)
+            const links = [];
+            content = content.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, label, url) => {
+                const placeholder = `__LINK_TOKEN_${links.length}__`;
+                let cleanUrl = url.trim();
+                if (!cleanUrl.match(/^(http|https):\/\//i)) cleanUrl = `https://${cleanUrl}`;
+                links.push({
+                    placeholder: placeholder,
+                    html: `<a href="${encodeURI(cleanUrl)}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline font-bold z-20 relative" onclick="event.stopPropagation()">${label}</a>`
+                });
+                return placeholder;
+            });
+
+            // 3. Process remaining Plain URLs (http... or www...)
+            const urlRegex = /(\bhttps?:\/\/[^\s<]+|\bwww\.[^\s<]+)/g;
+            content = content.replace(urlRegex, (url) => {
+                // 如果這個 URL 剛好是某個 token 的一部分，我們不應該動它。
+                // 但因為我們已經把 markdown link 替換成 token (e.g. __LINK_TOKEN_0__)，
+                // 而 token 中不包含 http/www，所以這裡的 regex 不會匹配到 token。
+                // 這樣就安全了。
+                
+                let actualUrl = url;
+                if (url.startsWith('www.')) actualUrl = `https://${url}`;
+                
+                // 顯示縮短的網址文字
+                const display = url.replace(/^https?:\/\//, '').replace(/^www\./, '');
+                const shortDisplay = display.length > 30 ? display.substring(0, 27) + '...' : display;
+
+                return `<a href="${encodeURI(actualUrl)}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline font-bold break-all z-20 relative" onclick="event.stopPropagation()">${shortDisplay}</a>`;
+            });
+
+            // 4. Restore Markdown links from tokens
+            links.forEach(link => {
+                content = content.replace(link.placeholder, link.html);
+            });
+
+            // 5. Newlines to <br>
+            return content.replace(/\n/g, '<br>');
+        };
+
+        window.handleImageUpload = (input) => {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    tempImageBase64 = e.target.result;
+                    const preview = document.getElementById('imagePreview');
+                    if (preview) { preview.src = tempImageBase64; preview.classList.remove('hidden'); }
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        };
+
+        window.toggleLinkInput = () => {
+            document.getElementById('link-input-section').classList.toggle('hidden');
+        };
+
+        window.confirmInsertLink = (targetTextAreaId) => {
+            const name = document.getElementById('link-name-input').value.trim();
+            const url = document.getElementById('link-url-input').value.trim();
+            const textarea = document.getElementById(targetTextAreaId);
+            if (name && url) {
+                const link = `[${name}](${url})`;
+                textarea.value += (textarea.value ? '\n' : '') + link;
+                document.getElementById('link-name-input').value = '';
+                document.getElementById('link-url-input').value = '';
+                document.getElementById('link-input-section').classList.add('hidden');
+            }
+        };
+
+        // --- Render Functions ---
+        const renderApp = () => {
+            if (!isDataLoaded) return;
+            renderNavigation();
+            renderContent();
+            lucide.createIcons();
+        };
+
+        const renderNavigation = () => {
+            const navDiv = document.getElementById('navigation');
+            const navItems = [
+                { id: 'itinerary', icon: 'route', label: '行程總覽' },
+                { id: 'packing', icon: 'check-square', label: '打包清單' },
+                { id: 'ferry', icon: 'ship', label: '渡輪時刻' }
+            ];
+            navDiv.innerHTML = navItems.map(item => `
+                <button onclick="window.setActiveTab('${item.id}')" class="flex flex-col items-center justify-center p-2 text-sm font-medium transition-colors ${activeTab === item.id ? 'text-rose-600' : 'text-gray-400 hover:text-rose-500'}">
+                    ${getIconHtml(item.icon, 20)} <span class="mt-1 text-xs">${item.label}</span>
+                </button>
+            `).join('');
+        };
+
+        const renderItinerary = () => {
+            const currentDayData = itinerary.find(day => day.day === activeDay);
+            if (!currentDayData) return `<div class="p-4 text-center">查無當日資料。請確認您的行程資料是否正確。</div>`;
+
+            const dayTabs = itinerary.map(day => `
+                <button onclick="window.setActiveDay(${day.day})" class="flex-1 py-4 px-2 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeDay === day.day ? 'border-rose-500 text-rose-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}">
+                    <div class="text-xs uppercase tracking-wider mb-1">Day ${day.day}</div><div>${day.date.split(' ')[0]}</div>
+                </button>
+            `).join('');
+
+            let summaryContent = '';
+            if (llmLoading.type === 'summary' && llmLoading.id === activeDay) {
+                summaryContent = `<div class="bg-blue-50 p-4 rounded-lg mb-6 flex items-center justify-center text-blue-600"><div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div> AI 分析中...</div>`;
+            } else if (currentDayData.aiSummary) {
+                summaryContent = `<div class="llm-suggestion-card mb-6 animate-fade-in relative group"><h4>${getIconHtml('sparkles', 18, 'text-blue-500')} AI 行程健檢</h4><p>${currentDayData.aiSummary}</p><button onclick="window.generateDaySummary(${activeDay})" class="absolute top-2 right-2 text-gray-400 hover:text-blue-500 p-1 rounded-full hover:bg-blue-100" title="重新產生">${getIconHtml('refresh-cw', 14)}</button></div>`;
+            } else {
+                summaryContent = `<div class="mb-6 text-center"><button onclick="window.generateDaySummary(${activeDay})" class="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-full text-sm font-medium shadow-md hover:shadow-lg transition-all transform active:scale-95 flex items-center mx-auto">${getIconHtml('sparkles', 16, 'mr-1')} AI 行程健檢</button></div>`;
+            }
+
+            const activitiesHtml = (currentDayData.activities || []).map(activity => {
+                const colorClass = getTypeColor(activity.type);
+                const imageSrc = activity.image && activity.image.startsWith('http') ? activity.image : (activity.image && activity.image.startsWith('data:image') ? activity.image : 'https://placehold.co/400x120/f9f9f9/a3a3a3?text=No+Image');
+                const subItemsHtml = (activity.subItems || []).map(sub => `
+                    <div class="flex items-center mt-2 group/sub">
+                        <input type="checkbox" id="sub-${sub.id}" ${sub.checked ? 'checked' : ''} onchange="window.toggleSubItem(${activeDay}, '${activity.id}', '${sub.id}')" class="sub-item-checkbox h-4 w-4 text-rose-500 rounded border-gray-300 focus:ring-rose-500 cursor-pointer">
+                        <label for="sub-${sub.id}" class="ml-2 text-sm text-gray-600 flex-1 cursor-pointer select-none">${sub.text}</label>
+                        <button onclick="window.deleteSubItem(${activeDay}, '${activity.id}', '${sub.id}')" class="text-gray-300 hover:text-red-400 p-1 opacity-0 group-hover/sub:opacity-100 transition-opacity">${getIconHtml('x', 14)}</button>
+                    </div>`).join('');
+
+                const aiSubItemBtn = (llmLoading.type === 'subitems' && llmLoading.id === activity.id) 
+                    ? `<span class="text-xs text-rose-500 flex items-center ml-2"><div class="animate-spin rounded-full h-3 w-3 border-b-2 border-rose-500 mr-1"></div></span>`
+                    : `<button onclick="window.generateSubItems(${activeDay}, '${activity.id}')" class="ml-2 text-rose-400 hover:text-rose-600 transition-colors" title="AI 建議細項">${getIconHtml('wand-2', 14)}</button>`;
+
+                return `
+                    <div class="relative pl-10 group mb-8">
+                        <div class="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200 group-last:hidden"></div>
+                        <div class="absolute left-0 top-4 w-8 h-8 rounded-full border-4 border-pink-50 shadow-md flex items-center justify-center z-10 ${colorClass.split(' ')[0]} ${colorClass.split(' ')[1]}">${getIconHtml(getIconName(activity.type), 18)}</div>
+                        <div class="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+                            <div class="h-32 w-full overflow-hidden relative group/image">
+                                <img src="${imageSrc}" class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" onerror="this.onerror=null;this.src='https://placehold.co/400x120/f9f9f9/a3a3a3?text=No+Image';">
+                                <button onclick="window.showEditActivityModal(${activeDay}, '${activity.id}')" class="absolute top-2 right-10 text-gray-700 bg-white/90 p-1.5 rounded-lg shadow-sm hover:text-rose-600 z-20">${getIconHtml('pencil', 16)}</button>
+                                <button onclick="window.deleteActivity(${activeDay}, '${activity.id}', '${activity.title}')" class="absolute top-2 right-2 text-gray-700 bg-white/90 p-1.5 rounded-lg shadow-sm hover:text-red-600 z-20">${getIconHtml('x', 16)}</button>
+                            </div>
+                            <div class="p-4 relative">
+                                <div class="flex justify-between items-start mb-2 pt-1">
+                                    <div class="flex items-center text-gray-500 text-sm font-semibold">${getIconHtml('clock', 14, 'mr-1')} ${activity.time}</div>
+                                    <span class="text-xs px-3 py-1 rounded-full font-medium border ${colorClass}">${getTypeLabel(activity.type)}</span>
+                                </div>
+                                <h3 class="text-lg font-bold text-gray-800 mb-2 group-hover:text-rose-600 transition-colors">${activity.title}</h3>
+                                <p class="text-gray-600 text-sm mb-4 leading-relaxed">${activity.description}</p>
+                                <div class="mt-4 pt-3 border-t border-gray-100">
+                                    <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center">行程細項 ${aiSubItemBtn}</h4>
+                                    <div class="space-y-1 mb-3">${subItemsHtml}</div>
+                                    <div class="flex items-center gap-2 mt-2">
+                                        <input type="text" id="new-sub-${activity.id}" placeholder="新增細項..." class="flex-1 text-sm border-b border-gray-200 focus:outline-none py-1 px-1 bg-transparent" onkeypress="if(event.key === 'Enter') window.addSubItem(${activeDay}, '${activity.id}')">
+                                        <button onclick="window.addSubItem(${activeDay}, '${activity.id}')" class="text-rose-500 hover:text-rose-700">${getIconHtml('plus-circle', 16)}</button>
+                                    </div>
+                                </div>
+                                <div class="mt-4 pt-3 border-t border-gray-100 bg-gray-50/50 -mx-4 -mb-4 p-4">
+                                    <div class="flex justify-between items-center mb-2">
+                                        <h4 class="text-sm font-semibold text-gray-600 flex items-center">${getIconHtml('notebook-text', 14, 'mr-1')} 備註:</h4>
+                                        <button onclick="window.showEditActivityModal(${activeDay}, '${activity.id}')" class="text-xs text-rose-500 hover:text-rose-700 flex items-center transition-colors font-medium">${getIconHtml('edit-2', 12, 'mr-1')} 編輯</button>
+                                    </div>
+                                    <div class="text-sm text-gray-700 p-2 rounded-lg bg-white border border-gray-200 break-words note-content" style="white-space: pre-wrap;">${formatNotes(activity.notes)}</div>
+                                    <a href="${getMapLink(activity.mapQuery)}" target="_blank" class="mt-3 flex items-center justify-center w-full py-2 bg-white hover:bg-rose-50 text-gray-600 hover:text-rose-600 rounded-lg text-sm font-medium border border-gray-200 shadow-sm transition-colors">${getIconHtml('map', 16, 'mr-2')} 查看地圖</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>`;
+            }).join('');
+
+            return `<div class="flex bg-white shadow-sm shrink-0 overflow-x-auto no-scrollbar sticky top-0 z-10 border-b border-gray-200">${dayTabs}</div>
+                    <div class="p-4 pb-20 animate-fade-in">
+                        <div class="mb-6 pt-2"><h2 class="text-xl font-bold text-gray-800 mb-2">${currentDayData.title}</h2><div class="h-1 w-10 bg-rose-500 rounded-full"></div></div>
+                        ${summaryContent}
+                        <div class="space-y-0 relative">${activitiesHtml}</div>
+                        <div class="mt-8 text-center"><button onclick="window.showAddActivityModal(${activeDay})" class="flex items-center justify-center px-6 py-3 bg-rose-600 text-white rounded-full font-semibold shadow-lg hover:bg-rose-700 transition-all transform active:scale-95 text-sm">${getIconHtml('plus-circle', 18, 'mr-2')} + 新增活動 (Day ${activeDay})</button></div>
+                        <div class="mt-8 text-center text-gray-400 text-xs pb-4">🌸 資料已連線雲端同步 🌸</div>
+                    </div>`;
+        };
+
+        const renderPacking = () => {
+            const categorizedListHtml = packingList.map(categoryGroup => `
+                <div class="mb-8 p-4 bg-white rounded-xl shadow-lg border border-gray-100">
+                    <h3 class="text-xl font-bold text-gray-700 mb-4 border-l-4 border-gray-500 pl-3 flex items-center">${getIconHtml('package', 18, 'mr-2 text-gray-600')} ${categoryGroup.category}</h3>
+                    <div class="space-y-3">${(categoryGroup.items || []).map(item => `
+                        <div class="flex items-center bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-3 transition-all hover:shadow-md">
+                            <input type="checkbox" ${item.checked ? 'checked' : ''} onchange="window.togglePackingItem('${item.id}')" class="form-checkbox h-5 w-5 text-gray-600 border-gray-300 rounded-md cursor-pointer checked:bg-gray-600 focus:ring-gray-500 mr-4">
+                            <label class="flex-1 text-gray-800 text-base cursor-pointer ${item.checked ? 'line-through text-gray-400 italic' : 'font-medium'}">${item.text}</label>
+                            <button onclick="window.deletePackingItem('${item.id}', '${item.text}')" class="text-gray-300 hover:text-red-500 ml-3 p-1">${getIconHtml('trash-2', 16)}</button>
+                        </div>
+                    `).join('')}</div>
+                </div>`).join('');
+            const categoryOptions = packingList.map(g => `<option value="${g.category}">${g.category}</option>`).join('');
+            return `<div class="p-4 pb-20 animate-fade-in">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center">${getIconHtml('list-checks', 24, 'mr-2 text-gray-700')} 旅行打包清單</h2>
+                <div class="mb-8 space-y-4">${categorizedListHtml}</div>
+                <div class="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-200 shadow-inner">
+                    <h3 class="text-lg font-semibold text-gray-700 mb-3 flex items-center">${getIconHtml('plus-square', 18, 'mr-2')} 新增項目</h3>
+                    <div class="space-y-3">
+                        <div><label class="block text-sm font-medium text-gray-700 mb-1">選擇分類</label><select id="newPackingItemCategory" class="w-full p-3 border border-gray-300 rounded-lg bg-white">${categoryOptions}</select></div>
+                        <div><label class="block text-sm font-medium text-gray-700 mb-1">項目名稱</label><div class="flex space-x-2"><input type="text" id="newPackingItemText" class="flex-1 p-3 border border-gray-300 rounded-lg"><button onclick="window.addPackingItem()" class="px-4 py-3 bg-gray-600 text-white rounded-lg shadow-md active:scale-95">加入</button></div></div>
+                    </div></div></div>`;
+        };
+
+        const renderFerry = () => {
+            const renderTimes = (times) => times.map(item => `<div class="flex justify-between p-4 rounded-xl border ${item.recommend ? 'bg-teal-50 border-teal-300 shadow-md' : 'bg-white border-gray-200'} mb-3"><span class="text-xl font-bold text-gray-700">${item.time}</span>${item.recommend ? '<span class="text-xs bg-teal-200 px-3 py-1 rounded-full font-bold">推薦</span>' : ''}</div>`).join('');
+            return `<div class="p-4 animate-fade-in"><h2 class="text-2xl font-bold text-gray-800 mb-4">相島渡輪時刻表</h2><div class="mb-8 p-4 bg-teal-50 rounded-xl border border-teal-200"><h3 class="font-bold text-teal-700 mb-3">去程：新宮港 → 相島</h3>${renderTimes(ferrySchedule.toIsland)}</div><div class="mb-8 p-4 bg-teal-50 rounded-xl border border-teal-200"><h3 class="font-bold text-teal-700 mb-3">回程：相島 → 新宮港</h3>${renderTimes(ferrySchedule.fromIsland)}</div></div>`;
+        };
+
+        const renderContent = () => {
+            const contentDiv = document.getElementById('main-content');
+            if (activeTab === 'itinerary') contentDiv.innerHTML = renderItinerary();
+            else if (activeTab === 'ferry') contentDiv.innerHTML = renderFerry();
+            else if (activeTab === 'packing') contentDiv.innerHTML = renderPacking();
+        };
+
+        // --- Interactions ---
+        window.setActiveTab = (id) => { activeTab = id; saveLocalState(); renderApp(); };
+        window.setActiveDay = (day) => { activeDay = day; saveLocalState(); renderApp(); };
+        window.togglePackingItem = (id) => { packingList.forEach(g => { const i = g.items.find(x=>x.id===id); if(i) i.checked=!i.checked; }); saveToCloud(); renderApp(); };
+        window.addPackingItem = () => { const cat = document.getElementById('newPackingItemCategory').value; const text = document.getElementById('newPackingItemText').value.trim(); if(text) { const g = packingList.find(x=>x.category===cat); if(g) g.items.push({id:crypto.randomUUID(), text, checked:false}); document.getElementById('newPackingItemText').value=''; saveToCloud(); renderApp(); }};
+        window.deletePackingItem = (id, name) => { if(confirm(`刪除 ${name}?`)) { packingList.forEach(g => { g.items = g.items.filter(x=>x.id!==id); }); saveToCloud(); renderApp(); }};
+        
+        window.addSubItem = (dayNum, actId) => { const day = itinerary.find(d => d.day === dayNum); const act = day?.activities.find(a => a.id === actId); const input = document.getElementById(`new-sub-${actId}`); if (act && input.value.trim()) { if (!act.subItems) act.subItems = []; act.subItems.push({ id: crypto.randomUUID(), text: input.value.trim(), checked: false }); saveToCloud(); renderApp(); }};
+        window.toggleSubItem = (dayNum, actId, subId) => { const day = itinerary.find(d => d.day === dayNum); const act = day?.activities.find(a => a.id === actId); const sub = act?.subItems.find(s => s.id === subId); if(sub) { sub.checked = !sub.checked; saveToCloud(); renderApp(); }};
+        window.deleteSubItem = (dayNum, actId, subId) => { const day = itinerary.find(d => d.day === dayNum); const act = day?.activities.find(a => a.id === actId); if(act) { act.subItems = act.subItems.filter(s => s.id !== subId); saveToCloud(); renderApp(); }};
+
+        window.deleteActivity = (dayNum, actId, title) => { if(confirm(`確定刪除 ${title}?`)) { const day = itinerary.find(d => d.day === dayNum); if (day) { day.activities = day.activities.filter(a => a.id !== actId); saveToCloud(); renderApp(); }}};
+
+        window.showAddActivityModal = (dayNum) => {
+            tempImageBase64 = '';
+            openModal(`
+                <h3 class="font-bold text-xl mb-4">新增活動 (Day ${dayNum})</h3>
+                <form onsubmit="event.preventDefault(); window.saveNewActivity(${dayNum})">
+                    <div class="space-y-3">
+                        <input id="actTitle" class="w-full border p-2 rounded" placeholder="標題 (必填)" required>
+                        <div class="flex gap-2">
+                             <input id="actTime" type="time" class="w-full border p-2 rounded" value="12:00" required>
+                             <select id="actType" class="w-full border p-2 rounded">${Object.keys(ACTIVITY_TYPES).map(k=>`<option value="${k}">${ACTIVITY_TYPES[k].label}</option>`).join('')}</select>
+                        </div>
+                        <div>
+                             <label class="block text-xs mb-1 font-medium text-gray-500">活動圖片</label>
+                             <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:bg-gray-50 transition-colors">
+                                <input type="file" id="actImageFile" accept="image/*" class="hidden" onchange="window.handleImageUpload(this)">
+                                <label for="actImageFile" class="cursor-pointer flex flex-col items-center justify-center">
+                                    ${getIconHtml('image', 24, 'text-gray-400 mb-1')}
+                                    <span class="text-xs text-gray-500">點擊上傳圖片 (或貼上網址)</span>
+                                </label>
+                                <input type="text" id="actImage" placeholder="或是貼上圖片網址..." class="mt-2 w-full border-b border-gray-300 text-xs p-1 focus:outline-none bg-transparent text-center">
+                                <img id="imagePreview" src="" class="hidden mt-2 max-h-24 rounded mx-auto object-cover">
+                             </div>
+                        </div>
+                        <textarea id="actDescription" class="w-full border p-2 rounded" placeholder="簡短描述"></textarea>
+                        <input id="actMapQuery" class="w-full border p-2 rounded" placeholder="地圖搜尋關鍵字">
+                        
+                        <div class="border-t pt-2 bg-gray-50 p-2 rounded">
+                             <div class="flex justify-between items-center mb-2">
+                                <label class="text-xs font-bold">備註</label>
+                                <button type="button" onclick="window.toggleLinkInput()" class="text-xs bg-rose-100 text-rose-600 px-2 py-1 rounded flex items-center hover:bg-rose-200">${getIconHtml('link', 12, 'mr-1')} 插入連結</button>
+                             </div>
+                             <div id="link-input-section" class="hidden mb-2 p-2 bg-white border rounded">
+                                <div class="grid gap-2 mb-2">
+                                    <input id="link-name-input" placeholder="連結名稱" class="border p-1 text-xs rounded w-full">
+                                    <input id="link-url-input" placeholder="網址 (https://...)" class="border p-1 text-xs rounded w-full">
+                                </div>
+                                <div class="flex justify-end gap-2">
+                                    <button type="button" onclick="window.toggleLinkInput()" class="text-xs text-gray-500">取消</button>
+                                    <button type="button" onclick="window.confirmInsertLink('actNotes')" class="bg-rose-500 text-white text-xs px-2 py-1 rounded">插入</button>
+                                </div>
+                             </div>
+                             <textarea id="actNotes" class="w-full border p-2 rounded h-20 text-sm" placeholder="相關資訊、網址..."></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex justify-end gap-2">
+                        <button type="button" onclick="window.closeModal()" class="px-3 py-1 bg-gray-200 rounded">取消</button>
+                        <button type="submit" class="px-3 py-1 bg-rose-500 text-white rounded">新增</button>
+                    </div>
+                </form>`);
+        };
+
+        window.saveNewActivity = (dayNum) => {
+            const day = itinerary.find(d => d.day === dayNum);
+            const title = document.getElementById('actTitle').value.trim();
+            if (!day || !title) return;
+            
+            const imgUrl = document.getElementById('actImage').value.trim();
+            const finalImage = tempImageBase64 || imgUrl;
+
+            day.activities.push({
+                id: crypto.randomUUID(),
+                time: document.getElementById('actTime').value,
+                title: title,
+                type: document.getElementById('actType').value,
+                description: document.getElementById('actDescription').value.trim(),
+                mapQuery: document.getElementById('actMapQuery').value.trim() || title,
+                image: finalImage,
+                notes: document.getElementById('actNotes').value,
+                subItems: []
+            });
+            day.activities.sort((a, b) => a.time.localeCompare(b.time));
+            saveToCloud();
+            window.closeModal();
+            renderApp();
+        };
+
+        window.showEditActivityModal = (dayNum, actId) => {
+            const day = itinerary.find(d => d.day === dayNum);
+            const activity = day?.activities.find(a => a.id === actId);
+            if (!activity) return;
+            tempImageBase64 = '';
+            const currentImage = activity.image || '';
+            const types = Object.keys(ACTIVITY_TYPES).map(k => `<option value="${k}" ${k === activity.type ? 'selected' : ''}>${ACTIVITY_TYPES[k].label}</option>`).join('');
+
+            openModal(`
+                <h3 class="font-bold text-xl mb-4">編輯活動</h3>
+                <form onsubmit="event.preventDefault(); window.saveEditedActivity(${dayNum}, '${actId}')">
+                    <div class="space-y-3">
+                        <input id="editTitle" class="w-full border p-2 rounded" value="${activity.title}" required>
+                        <div class="flex gap-2"><div class="flex-1"><input id="editTime" type="time" class="w-full border p-2 rounded" value="${activity.time}" required></div><div class="flex-1"><select id="editType" class="w-full border p-2 rounded">${types}</select></div></div>
+                        <div>
+                             <label class="block text-xs mb-1 font-medium text-gray-500">活動圖片</label>
+                             <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:bg-gray-50 transition-colors">
+                                <input type="file" id="editImageFile" accept="image/*" class="hidden" onchange="window.handleImageUpload(this)">
+                                <label for="editImageFile" class="cursor-pointer flex flex-col items-center justify-center">
+                                    ${getIconHtml('image', 24, 'text-gray-400 mb-1')}
+                                    <span class="text-xs text-gray-500">點擊更換圖片</span>
+                                </label>
+                                <input type="text" id="editImage" value="${currentImage.startsWith('data:') ? '' : currentImage}" placeholder="或是貼上圖片網址..." class="mt-2 w-full border-b border-gray-300 text-xs p-1 focus:outline-none bg-transparent text-center">
+                                <img id="imagePreview" src="${currentImage}" class="${currentImage ? '' : 'hidden'} mt-2 max-h-24 rounded mx-auto object-cover">
+                             </div>
+                        </div>
+                        <textarea id="editDescription" class="w-full border p-2 rounded">${activity.description}</textarea>
+                        <input id="editMapQuery" class="w-full border p-2 rounded" value="${activity.mapQuery}">
+                        <div class="border-t pt-2 mt-2">
+                            <label class="text-xs font-bold mb-1 block">備註 (支援網址)</label>
+                            <div class="flex gap-2 mb-2">
+                                <input id="linkText" placeholder="連結名稱" class="border p-1 text-sm w-1/3 rounded">
+                                <input id="linkUrl" placeholder="連結網址" class="border p-1 text-sm w-full rounded">
+                                <button type="button" onclick="window.insertLink()" class="bg-gray-200 px-2 text-sm rounded">插入</button>
+                            </div>
+                            <textarea id="editNotes" class="w-full border p-2 rounded h-24 text-sm">${activity.notes || ''}</textarea>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex justify-end gap-2"><button onclick="window.closeModal()" class="px-3 py-1 bg-gray-200 rounded">取消</button><button type="submit" class="px-3 py-1 bg-rose-500 text-white rounded">儲存</button></div>
+                </form>`);
+        };
+
+        window.saveEditedActivity = (dayNum, actId) => {
+            const day = itinerary.find(d => d.day === dayNum);
+            const act = day?.activities.find(a => a.id === actId);
+            if (act) {
+                act.title = document.getElementById('editTitle').value.trim();
+                act.time = document.getElementById('editTime').value;
+                act.type = document.getElementById('editType').value;
+                act.description = document.getElementById('editDescription').value.trim();
+                act.mapQuery = document.getElementById('editMapQuery').value.trim();
+                act.notes = document.getElementById('editNotes').value;
+                const imgUrl = document.getElementById('editImage').value.trim();
+                if (tempImageBase64) act.image = tempImageBase64;
+                else if (imgUrl) act.image = imgUrl;
+                day.activities.sort((a, b) => a.time.localeCompare(b.time));
+                saveToCloud();
+                window.closeModal();
+                renderApp();
+            }
+        };
+
+        window.insertLink = () => {
+            const text = document.getElementById('linkText').value.trim();
+            const url = document.getElementById('linkUrl').value.trim();
+            const notes = document.getElementById('editNotes');
+            if(text && url) {
+                notes.value += `\n[${text}](${url})`;
+                document.getElementById('linkText').value = '';
+                document.getElementById('linkUrl').value = '';
+            }
+        };
+
+        window.closeModal = (e) => { if (e && e.target !== document.getElementById('modal-backdrop')) return; document.getElementById('modal-backdrop').classList.remove('open'); };
+        const openModal = (html) => { document.getElementById('modal-content').innerHTML = html; lucide.createIcons(); document.getElementById('modal-backdrop').classList.add('open'); };
+
+        window.onload = initApp;
+    </script>
+</body>
+</html>
