@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>福岡旅遊小幫手 - 購物清單升級版</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons CDN for visual elements -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Custom scrollbar styles */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .scroll-container { flex-grow: 1; overflow-y: auto; }
+        
+        /* Define fade-in animation */
+        .animate-fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Modal Backdrop */
+        .modal-backdrop {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.4); 
+            display: flex; justify-content: center; align-items: center;
+            z-index: 50; opacity: 0; visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .modal-backdrop.open { opacity: 1; visibility: visible; }
+        .modal-content {
+            background: white; padding: 1.5rem; border-radius: 0.75rem;
+            max-width: 90%; width: 480px; max-height: 90vh; 
+            overflow-y: auto; transform: translateY(-30px);
+            transition: transform 0.3s ease; box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1); 
+        }
+        .modal-backdrop.open .modal-content { transform: translateY(0); }
+
+        /* Sub-item specific styles */
+        .sub-item-checkbox:checked + label { text-decoration: line-through; color: #9ca3af; }
+
+        /* Sync Indicator */
+        .sync-status {
+            position: fixed; bottom: 20px; right: 20px;
+            background: rgba(255, 255, 255, 0.9); padding: 8px 12px;
+            border-radius: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            font-size: 12px; color: #10b981; /* Green */
+            display: flex; align-items: center; gap: 6px;
+            z-index: 60; transition: opacity 0.5s; pointer-events: none;
+        }
+        .sync-status.saving { color: #f59e0b; /* Amber */ }
+        .sync-status.offline { color: #6b7280; /* Gray */ }
+
+        /* LLM Card */
+        .llm-suggestion-card {
+            border: 1px solid #e5e5e5; padding: 1rem; border-radius: 0.75rem;
+            background-color: #f0f9ff; margin-bottom: 1rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .llm-suggestion-card h4 { font-weight: 700; color: #0c4a6e; display: flex; align-items: center; gap: 8px; margin-bottom: 0.5rem; }
+        .llm-suggestion-card p { font-size: 0.875rem; color: #1e293b; line-height: 1.5; white-space: pre-wrap; }
+
+        /* 連結樣式修正 */
+        .note-content a {
+            color: #2563eb; /* blue-600 */
+            text-decoration: underline;
+            font-weight: 600;
+            cursor: pointer;
+            position: relative;
+            z-index: 20;
+            pointer-events: auto;
+        }
+        .note-content a:hover { color: #1d4ed8; }
+
+        /* Expense Table */
+        .expense-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+        .expense-table th { text-align: left; padding: 0.5rem; background-color: #f9fafb; color: #6b7280; font-weight: 600; border-bottom: 1px solid #e5e7eb; }
+        .expense-table td { padding: 0.5rem; border-bottom: 1px solid #f3f4f6; color: #374151; }
+        .expense-table tr:last-child td { border-bottom: none; }
+    </style>
+</head>
+<body class="bg-pink-50 antialiased h-screen flex flex-col">
+
+    <!-- 主容器 -->
+    <div id="app" class="max-w-md mx-auto bg-white h-full flex flex-col font-sans text-gray-800 shadow-2xl overflow-hidden relative">
+        
+        <!-- Header -->
+        <div id="header" class="bg-gradient-to-br from-rose-400 to-pink-300 p-6 text-white shrink-0 shadow-lg z-20">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h1 class="text-2xl font-bold tracking-wide">福岡櫻花紀行 (AI)</h1>
+                    <p class="text-pink-100 text-sm mt-1">雲端同步版 • 4天3夜</p>
+                    <div class="text-xs text-pink-100/70 flex items-center gap-1 mt-3 font-mono">
+                        <i data-lucide="hard-drive" class="w-3 h-3 mr-1"></i>
+                        <span id="user-id-display">讀取中...</span>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <!-- 設定按鈕 -->
+                    <button onclick="window.showSettingsModal()" class="p-2 rounded-xl border border-white/40 backdrop-blur-sm hover:bg-white/10 transition-colors">
+                        <i data-lucide="settings" class="w-6 h-6 text-white"></i>
+                    </button>
+                    <div class="p-2 rounded-xl border border-white/40 backdrop-blur-sm">
+                        <i data-lucide="sparkles" class="w-6 h-6 text-white"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div id="main-content" class="scroll-container z-10 bg-pink-50">
+            <div id="loading-screen" class="flex flex-col items-center justify-center h-full text-gray-500 p-4">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500 mx-auto mb-4"></div>
+                <p class="mb-4 text-sm">正在載入...</p>
+                <button onclick="window.forceOfflineMode()" class="text-sm text-rose-500 underline hover:text-rose-700 cursor-pointer">
+                    略過同步，直接進入
+                </button>
+            </div>
+        </div>
+
+        <!-- Bottom Navigation -->
+        <div id="navigation" class="bg-white border-t border-gray-100 shrink-0 w-full flex justify-around items-center h-16 z-30 shadow-t-lg">
+            <!-- Navigation buttons will be rendered here by JavaScript -->
+        </div>
+        
+        <!-- Sync Status Indicator -->
+        <div id="syncStatus" class="sync-status hidden">
+            <i data-lucide="cloud-check" class="w-4 h-4"></i>
+            <span>已同步</span>
+        </div>
+
+        <!-- Modal Structure -->
+        <div id="modal-backdrop" class="modal-backdrop" onclick="closeModal(event)">
+            <div id="modal-content" class="modal-content" onclick="event.stopPropagation()"></div>
+        </div>
+
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ⚠️ 部署時，請將下方的 apiKey 留空，Canvas 會自動注入
+        const GEMINI_API_KEY = "";
+        const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent";
+        
+        // 使用者提供的 Firebase Config
+        const customFirebaseConfig = {
+            apiKey: "AIzaSyAJ_b9BiX1zT7WFu8f08uoKxeV8vgDUHz4",
+            authDomain: "fuktrip.firebaseapp.com",
+            projectId: "fuktrip",
+            storageBucket: "fuktrip.firebasestorage.app",
+            messagingSenderId: "663462561018",
+            appId: "1:663462561018:web:d0c9f00c9fed0253a2b543",
+            measurementId: "G-KME94X3EKH"
+        };
+        
+        const envConfig = (typeof __firebase_config !== 'undefined' && __firebase_config) ? JSON.parse(__firebase_config) : {};
+        const firebaseConfig = (Object.keys(envConfig).length > 0) ? envConfig : customFirebaseConfig;
+        const appId = (typeof __app_id !== 'undefined' && __app_id) ? __app_id : firebaseConfig.projectId;
+
+        let app, auth, db, tripDocRef;
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+            const isPreview = (typeof __firebase_config !== 'undefined' && Object.keys(envConfig).length > 0);
+            if (isPreview) {
+                 tripDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'fukuoka_trip', 'shared_plan_full_v5');
+            } else {
+                 tripDocRef = doc(db, 'trips', 'fukuoka_shared_plan_full_v5');
+            }
+        } catch(e) {
+            console.error("Firebase init failed", e);
+        }
+
+        // ====================================================================
+        // 2. STATE MANAGEMENT
+        // ====================================================================
+
+        const STORAGE_KEY = 'fukuokaTripData_v13_shoppingFixed';
+        const API_KEY_STORAGE = 'user_gemini_api_key';
+
+        let activeTab = localStorage.getItem('local_activeTab') || 'itinerary';
+        let activeDay = parseInt(localStorage.getItem('local_activeDay') || '1');
+        let userGeminiKey = localStorage.getItem(API_KEY_STORAGE) || '';
+        
+        let itinerary = []; 
+        let packingList = [];
+        let members = [];
+        let expenses = [];
+        let shoppingList = [];
+        
+        let isDataLoaded = false;
+        let isOfflineMode = false;
+        let lastSnapshotJson = ""; 
+        let tempImageBase64 = '';
+        let currentExchangeRate = parseFloat(localStorage.getItem('local_exchangeRate') || '0.215');
+
+        let llmLoading = { type: null, id: null };
+        let llmCache = { daySummaries: {}, loadingActivity: null, loadingDay: null };
+        
+        // Global variable for modal callbacks to avoid closure issues in onclick strings
+        window.pendingModalAction = null;
+
+        const initialPackingList = [
+            { category: '文件與金錢', items: [{ id: 'p1', text: '護照', checked: false }, { id: 'p2', text: '日幣現金', checked: false }] },
+            { category: '電子產品', items: [{ id: 'p4', text: '網卡/SIM卡', checked: false }, { id: 'p5', text: '行動電源', checked: false }] },
+            { category: '衣物與用品', items: [{ id: 'p7', text: '好走的鞋', checked: false }, { id: 'p8', text: '雨具', checked: false }] },
+            { category: '藥品', items: [{ id: 'p10', text: '常備藥', checked: false }] }
+        ];
+
+        const initialItineraryData = [
+            { day: 1, date: "4/6 (一)", title: "抵達福岡 - FUK", aiSummary: "", activities: [
+                { id: 'act1', time: "14:00", title: "抵達福岡機場", type: "plane", description: "領取行李及網卡，搭乘地鐵前往飯店。", mapQuery: "福岡機場國際線", subItems: [{ id: 's1', text: '購買地鐵一日券', checked: false }], image: '', notes: '機場兌換票券\n[西鐵電車官網](https://www.nishitetsu.jp/)' },
+                { id: 'act2', time: "16:00", title: "中洲川端商店街", type: "sightseeing", description: "到飯店 Check-in 後，前往中洲川端商店街逛逛。", mapQuery: "中洲川端商店街", subItems: [], image: 'https://placehold.co/400x120/f9f9f9/a3a3a3?text=商店街', notes: '' },
+                { id: 'act1_new', time: "19:00", title: "一蘭拉麵 天神西通店", type: "food", description: "品嚐福岡必吃的天然豚骨拉麵，指定「釜醬汁豚骨拉麵」。", mapQuery: "一蘭拉麵 天神西通店", subItems: [], image: 'https://placehold.co/400x120/fff7e6/d97706?text=Ichiran+Ramen', notes: '釜醬汁豚骨拉麵是天神西通店限定。' }
+            ]},
+            { day: 2, date: "4/7 (二)", title: "太宰府 & 賞櫻", aiSummary: "", activities: [
+                { id: 'act3', time: "09:00", title: "早餐：食堂 おわん", type: "food", description: "享用日式傳統定食早餐。", mapQuery: "食堂 おわん Hakata", subItems: [], image: 'https://placehold.co/400x120/fff7e6/d97706?text=Breakfast', notes: '' },
+                { id: 'act_dazaifu_go', time: "09:30", title: "前往太宰府", type: "transport", description: "搭乘西鐵電車。", mapQuery: "西鐵福岡(天神)站", subItems: [], image: 'https://placehold.co/400x120/e0f2fe/0284c7?text=Train', notes: '可用 IC 卡。' },
+                { id: 'act3_main', time: "10:30", title: "太宰府天滿宮", type: "sightseeing", description: "參拜學問之神，順道吃梅枝餅。", mapQuery: "太宰府天滿宮", subItems: [], image: '', notes: '' },
+                { id: 'act_park', time: "14:30", title: "賞櫻：舞鶴公園", type: "sightseeing", description: "福岡市內No.1賞櫻名所。", mapQuery: "舞鶴公園", subItems: [], image: 'https://placehold.co/400x120/ffe4e6/e11d48?text=Sakura', notes: '' },
+                { id: 'act_dinner_new', time: "19:00", title: "燒肉 Nikuichi (博多店/藥院店)", type: "food", description: "CP值極高的黑毛和牛燒肉名店，務必預約。", mapQuery: "Yakiniku Nikuichi Hakata", subItems: [], image: 'https://placehold.co/400x120/fef2f2/b91c1c?text=Yakiniku+Nikuichi', notes: '[預約連結](https://yakiniku-nikuichi.com/)' },
+                { id: 'act_shop', time: "21:00", title: "天神地區逛街", type: "shopping", description: "享受夜間購物樂趣。", mapQuery: "天神地下街", subItems: [], image: '', notes: '' }
+            ]},
+            { day: 3, date: "4/8 (三)", title: "貓島 & 拉麵", aiSummary: "", activities: [
+                { id: 'act5', time: "09:20", title: "相島渡輪", type: "ferry", description: "搭乘渡輪前往相島看貓咪。", mapQuery: "相島渡輪", subItems: [{ id: 's2', text: '帶貓零食', checked: false }, { id: 's3', text: '防曬乳', checked: false }], image: '', notes: '[相島渡輪時刻表](https://ferry.ai/schedule)\n建議提早 30 分鐘排隊買票' },
+                { id: 'act6', time: "13:50", title: "返回新宮港", type: "ferry", description: "搭乘渡輪返回福岡。", mapQuery: "新宮港", subItems: [], image: '', notes: '' },
+                { id: 'act_shop_hakata', time: "16:00", title: "博多站周邊逛街", type: "shopping", description: "JR博多城、博多阪急。", mapQuery: "JR Hakata City", subItems: [], image: '', notes: '' },
+                { id: 'act_ramen_new', time: "19:00", title: "麵屋兼虎 (Menya Kanetora)", type: "food", description: "超濃厚魚介豚骨沾麵，福岡沾麵界的王者。", mapQuery: "麵屋兼虎 天神本店", subItems: [], image: 'https://placehold.co/400x120/fff7ed/c2410c?text=Menya+Kanetora', notes: '推薦點「濃厚沾麵」。' }
+            ]},
+            { day: 4, date: "4/9 (四)", title: "大濠 & 返程", aiSummary: "", activities: [
+                { id: 'act7', time: "10:00", title: "大濠公園", type: "sightseeing", description: "在湖邊散步，享受早晨時光。", mapQuery: "大濠公園", subItems: [], image: '', notes: '' },
+                { id: 'act8', time: "13:00", title: "前往機場", type: "plane", description: "預留時間搭地鐵到機場。", mapQuery: "福岡機場國際線", subItems: [], image: '', notes: '' }
+            ]}
+        ];
+        
+        const ferrySchedule = {
+            toIsland: [{ time: "07:50", recommend: false }, { time: "09:20", recommend: true, note: "推薦" }, { time: "11:30", recommend: false }, { time: "14:30", recommend: false }, { time: "17:40", recommend: false }],
+            fromIsland: [{ time: "07:00", recommend: false }, { time: "08:40", recommend: false }, { time: "10:50", recommend: false }, { time: "13:50", recommend: true, note: "推薦" }, { time: "16:00", recommend: false }, { time: "17:30", recommend: false }]
+        };
+
+        const ACTIVITY_TYPES = {
+            plane: { label: "航班/交通", icon: "plane", color: "bg-blue-500/10 text-blue-700 border-blue-200" },
+            sightseeing: { label: "觀光/景點", icon: "map-pin", color: "bg-rose-500/10 text-rose-700 border-rose-200" },
+            food: { label: "美食/餐廳", icon: "knife-hand", color: "bg-amber-500/10 text-amber-700 border-amber-200" },
+            ferry: { label: "渡輪/船班", icon: "ship", color: "bg-teal-500/10 text-teal-700 border-teal-200" },
+            shopping: { label: "購物", icon: "shopping-bag", color: "bg-purple-500/10 text-purple-700 border-purple-200" },
+            transport: { label: "交通", icon: "train", color: "bg-teal-500/10 text-teal-700 border-teal-200" },
+            activity: { label: "活動", icon: "info", color: "bg-gray-500/10 text-gray-700 border-gray-200" },
+            hotel: { label: "住宿", icon: "moon", color: "bg-pink-500/10 text-pink-700 border-pink-200" }
+        };
+
+        // ====================================================================
+        // 3. AUTH & SYNC LOGIC (離線優先)
+        // ====================================================================
+
+        window.forceOfflineMode = () => {
+            console.warn("Forcing offline mode.");
+            isOfflineMode = true;
+            isDataLoaded = true;
+            
+            const cachedData = localStorage.getItem('offline_data_cache');
+            if (cachedData) {
+                try {
+                    const parsed = JSON.parse(cachedData);
+                    itinerary = parsed.itinerary || initialItineraryData;
+                    packingList = parsed.packingList || initialPackingList;
+                    members = parsed.members || ['我', '朋友'];
+                    expenses = parsed.expenses || [];
+                    shoppingList = parsed.shoppingList || [];
+                    console.log("Loaded from local cache.");
+                } catch(e) {
+                    itinerary = initialItineraryData;
+                    packingList = initialPackingList;
+                }
+            } else {
+                itinerary = initialItineraryData;
+                packingList = initialPackingList;
+            }
+            
+            renderApp();
+            showSyncStatus('offline');
+            const idDisplay = document.getElementById('user-id-display');
+            if(idDisplay) idDisplay.textContent = "離線模式 (僅本機)";
+        };
+
+        const initApp = async () => {
+            const connectionTimeout = setTimeout(() => {
+                if (!isDataLoaded) {
+                    window.forceOfflineMode();
+                }
+            }, 5000);
+
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth failed:", error);
+                clearTimeout(connectionTimeout);
+                window.forceOfflineMode();
+                return;
+            }
+
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    const idDisplay = document.getElementById('user-id-display');
+                    if(idDisplay) idDisplay.textContent = `ID: ${user.uid.substring(0,6)}...`;
+                    
+                    onSnapshot(tripDocRef, (docSnapshot) => {
+                        clearTimeout(connectionTimeout);
+                        
+                        if (docSnapshot.exists()) {
+                            const data = docSnapshot.data();
+                            const currentJson = JSON.stringify({i: data.itinerary, p: data.packingList, m: data.members, e: data.expenses, s: data.shoppingList});
+                            if (currentJson === lastSnapshotJson) return;
+                            lastSnapshotJson = currentJson;
+
+                            itinerary = data.itinerary || initialItineraryData;
+                            packingList = data.packingList || initialPackingList;
+                            members = data.members || ['我', '朋友'];
+                            expenses = data.expenses || [];
+                            shoppingList = data.shoppingList || [];
+                            
+                            localStorage.setItem('offline_data_cache', JSON.stringify({itinerary, packingList, members, expenses, shoppingList}));
+                        } else {
+                            console.log("New trip detected. Initializing...");
+                            itinerary = initialItineraryData;
+                            packingList = initialPackingList;
+                            members = ['我', '朋友'];
+                            saveToCloud();
+                        }
+                        isDataLoaded = true;
+                        isOfflineMode = false;
+                        renderApp();
+                    }, (error) => {
+                        console.error("Sync error:", error);
+                        clearTimeout(connectionTimeout);
+                        window.forceOfflineMode();
+                    });
+                }
+            });
+        };
+
+        const saveToCloud = async () => {
+            if (isOfflineMode) {
+                localStorage.setItem('offline_data_cache', JSON.stringify({itinerary, packingList, members, expenses, shoppingList}));
+                showSyncStatus('offline');
+                return;
+            }
+
+            if (!auth.currentUser) return;
+            showSyncStatus('saving');
+            try {
+                itinerary.forEach(day => {
+                    if (day.activities) {
+                        day.activities.sort((a, b) => a.time.localeCompare(b.time));
+                    }
+                });
+                expenses.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                const dataToSave = {
+                    itinerary: itinerary,
+                    packingList: packingList,
+                    members: members,
+                    expenses: expenses,
+                    shoppingList: shoppingList,
+                    lastUpdated: new Date().toISOString()
+                };
+                lastSnapshotJson = JSON.stringify({i: itinerary, p: packingList, m: members, e: expenses, s: shoppingList});
+                
+                await setDoc(tripDocRef, dataToSave, { merge: false });
+                showSyncStatus('synced');
+            } catch (e) {
+                console.error("Save failed:", e);
+                showSyncStatus('error');
+            }
+        };
+
+        const saveLocalState = () => {
+            localStorage.setItem('local_activeTab', activeTab);
+            localStorage.setItem('local_activeDay', activeDay);
+            localStorage.setItem('local_exchangeRate', currentExchangeRate);
+        };
+
+        const showSyncStatus = (status) => {
+            const el = document.getElementById('syncStatus');
+            el.classList.remove('hidden', 'saving', 'offline');
+            el.style.opacity = '1';
+            if (status === 'saving') {
+                el.innerHTML = `<div class="animate-spin rounded-full h-3 w-3 border-b-2 border-amber-500"></div><span class="text-amber-500">儲存中...</span>`;
+                el.classList.add('saving');
+            } else if (status === 'synced') {
+                el.innerHTML = `<i data-lucide="cloud-check" class="w-4 h-4"></i><span>已同步</span>`;
+                el.className = 'sync-status';
+                setTimeout(() => { el.style.opacity = '0'; }, 2000);
+            } else if (status === 'offline') {
+                el.innerHTML = `<i data-lucide="hard-drive" class="w-4 h-4"></i><span>離線模式</span>`;
+                el.classList.add('offline');
+            } else {
+                el.innerHTML = `<span class="text-red-500">同步失敗</span>`;
+            }
+            if (window.lucide) lucide.createIcons();
+        };
+
+        // --- Gemini AI ---
+        const callGemini = async (payload) => {
+            const apiKey = userGeminiKey || DEFAULT_GEMINI_API_KEY;
+            if (!apiKey) throw new Error("MISSING_KEY");
+            try {
+                const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error('API Error');
+                return await response.json();
+            } catch (error) { console.error("Gemini API Error:", error); throw error; }
+        };
+
+        window.generateSubItems = async (dayNum, actId) => {
+            const day = itinerary.find(d => d.day === dayNum);
+            const act = day?.activities.find(a => a.id === actId);
+            if (!act) return;
+            
+            if (!userGeminiKey && !GEMINI_API_KEY) { window.showSettingsModal(); return; }
+
+            llmLoading = { type: 'subitems', id: actId };
+            renderApp();
+            const prompt = `請為這個旅遊行程：「${act.title} (${act.description})」提供 3-5 個簡短、具體的待辦事項或建議。請以 JSON 陣列格式回傳。`;
+            try {
+                const res = await callGemini({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json" } });
+                const suggestions = JSON.parse(res.candidates[0].content.parts[0].text);
+                if (Array.isArray(suggestions)) {
+                    if (!act.subItems) act.subItems = [];
+                    suggestions.forEach(text => act.subItems.push({ id: crypto.randomUUID(), text, checked: false }));
+                    saveToCloud();
+                }
+            } catch (e) { 
+                if (e.message === "MISSING_KEY") window.showSettingsModal();
+                else alert("AI 暫時無法提供建議，請檢查 API Key 或稍後再試。"); 
+            } 
+            finally { llmLoading = { type: null, id: null }; renderApp(); }
+        };
+
+        window.generateDaySummary = async (dayNum) => {
+            const day = itinerary.find(d => d.day === dayNum);
+            if (!day) return;
+
+            if (!userGeminiKey && !GEMINI_API_KEY) { window.showSettingsModal(); return; }
+
+            llmLoading = { type: 'summary', id: dayNum };
+            renderApp();
+            const scheduleText = day.activities.map(a => `${a.time} ${a.title}`).join('\n');
+            const prompt = `請擔任專業導遊，針對以下行程提供簡短總結與建議 (100字以內)：\n${scheduleText}`;
+            try {
+                const res = await callGemini({ contents: [{ parts: [{ text: prompt }] }] });
+                day.aiSummary = res.candidates[0].content.parts[0].text;
+                saveToCloud();
+            } catch (e) { 
+                if (e.message === "MISSING_KEY") window.showSettingsModal();
+                else alert("AI 暫時無法分析行程，請檢查 API Key 或稍後再試。"); 
+            } 
+            finally { llmLoading = { type: null, id: null }; renderApp(); }
+        };
+
+        // --- Helpers ---
+        const getIconHtml = (name, size, cls = '') => `<i data-lucide="${name}" class="w-${size/4} h-${size/4} ${cls}"></i>`;
+        const getIconName = (type) => ACTIVITY_TYPES[type]?.icon || 'pin';
+        const getTypeLabel = (type) => ACTIVITY_TYPES[type]?.label || '其他';
+        const getTypeColor = (type) => ACTIVITY_TYPES[type]?.color || 'bg-gray-100 text-gray-500 border-gray-200';
+        const getMapLink = (query) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+
+        const formatNotes = (text) => {
+            if (!text) return '<span class="text-gray-400 italic">點擊「編輯」加入連結...</span>';
+            let content = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+            content = content.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, p1, p2) => `<a href="${encodeURI(p2)}" target="_blank" onclick="event.stopPropagation()" class="text-blue-600 hover:underline font-bold relative z-20">${p1}</a>`);
+            content = content.replace(/(?<!href="|">)(\bhttps?:\/\/[^\s<]+)/g, (url) => `<a href="${encodeURI(url)}" target="_blank" onclick="event.stopPropagation()" class="text-blue-600 hover:underline font-bold break-all relative z-20">${url}</a>`);
+            return content.replace(/\n/g, '<br>');
+        };
+
+        window.handleImageUpload = (input) => {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    tempImageBase64 = e.target.result;
+                    const preview = document.getElementById('imagePreview');
+                    if(preview) { preview.src = tempImageBase64; preview.classList.remove('hidden'); }
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        };
+
+        window.toggleLinkInput = () => { document.getElementById('link-input-section').classList.toggle('hidden'); };
+        window.confirmInsertLink = (id) => {
+            const n = document.getElementById('link-name-input').value.trim(), u = document.getElementById('link-url-input').value.trim(), t = document.getElementById(id);
+            if(n && u) { t.value += (t.value ? '\n' : '') + `[${n}](${u})`; document.getElementById('link-name-input').value=''; document.getElementById('link-url-input').value=''; document.getElementById('link-input-section').classList.add('hidden'); }
+        };
+
+        // --- Settings Modal ---
+        window.showSettingsModal = () => {
+            openModal(`
+                <h3 class="font-bold text-xl mb-4 flex items-center">${getIconHtml('settings', 20, 'mr-2')} 設定</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Google Gemini API Key</label>
+                        <input type="password" id="apiKeyInput" value="${userGeminiKey}" placeholder="貼上您的 API Key" class="w-full border p-2 rounded-lg focus:ring-rose-500 focus:border-rose-500">
+                        <p class="text-xs text-gray-500 mt-1">若要使用 AI 行程建議功能，請輸入您的 Key。我們會將其儲存在您的瀏覽器中。</p>
+                        <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-xs text-blue-500 hover:underline">取得免費 API Key</a>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end gap-2">
+                    <button onclick="window.closeModal()" class="px-3 py-1 bg-gray-200 rounded">取消</button>
+                    <button onclick="window.saveSettings()" class="px-3 py-1 bg-rose-500 text-white rounded">儲存</button>
+                </div>
+            `);
+        };
+
+        window.saveSettings = () => {
+            const newKey = document.getElementById('apiKeyInput').value.trim();
+            userGeminiKey = newKey;
+            localStorage.setItem(API_KEY_STORAGE, newKey);
+            alert("設定已儲存！");
+            window.closeModal();
+        };
+
+        // --- Render Functions ---
+        const renderApp = () => {
+            if (!isDataLoaded) return;
+            renderNavigation();
+            renderContent();
+            lucide.createIcons();
+        };
+
+        const renderNavigation = () => {
+            const navDiv = document.getElementById('navigation');
+            const navItems = [
+                { id: 'itinerary', icon: 'route', label: '行程' },
+                { id: 'packing', icon: 'check-square', label: '清單' },
+                { id: 'shopping', icon: 'shopping-bag', label: '購物' },
+                { id: 'ferry', icon: 'ship', label: '渡輪' },
+                { id: 'exchange', icon: 'wallet', label: '財務' }
+            ];
+            navDiv.innerHTML = navItems.map(item => `
+                <button onclick="window.setActiveTab('${item.id}')" class="flex flex-col items-center justify-center p-2 text-sm font-medium transition-colors ${activeTab === item.id ? 'text-rose-600' : 'text-gray-400 hover:text-rose-500'}">
+                    ${getIconHtml(item.icon, 20)} <span class="mt-1 text-xs">${item.label}</span>
+                </button>
+            `).join('');
+        };
+
+        const renderContent = () => {
+            const contentDiv = document.getElementById('main-content');
+            if (activeTab === 'itinerary') contentDiv.innerHTML = renderItinerary();
+            else if (activeTab === 'ferry') contentDiv.innerHTML = renderFerry();
+            else if (activeTab === 'packing') contentDiv.innerHTML = renderPacking();
+            else if (activeTab === 'shopping') contentDiv.innerHTML = renderShopping();
+            else if (activeTab === 'exchange') contentDiv.innerHTML = renderExchange();
+        };
+
+        const renderItinerary = () => {
+            const currentDayData = itinerary.find(day => day.day === activeDay);
+            if (!currentDayData) return `<div class="p-4 text-center">查無當日資料。</div>`;
+            const dayTabs = itinerary.map(day => `
+                <button onclick="window.setActiveDay(${day.day})" class="flex-1 py-4 px-2 text-sm font-medium transition-all border-b-2 whitespace-nowrap ${activeDay === day.day ? 'border-rose-500 text-rose-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}">
+                    <div class="text-xs uppercase tracking-wider mb-1">Day ${day.day}</div><div>${day.date.split(' ')[0]}</div>
+                </button>`).join('');
+            let summaryContent = '';
+            if (llmLoading.type === 'summary' && llmLoading.id === activeDay) {
+                summaryContent = `<div class="bg-blue-50 p-4 rounded-lg mb-6 flex items-center justify-center text-blue-600"><div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div> AI 分析中...</div>`;
+            } else if (currentDayData.aiSummary) {
+                summaryContent = `<div class="llm-suggestion-card mb-6 animate-fade-in relative group"><h4>${getIconHtml('sparkles', 18, 'text-blue-500')} AI 行程健檢</h4><p>${currentDayData.aiSummary}</p><button onclick="window.generateDaySummary(${activeDay})" class="absolute top-2 right-2 text-gray-400 hover:text-blue-500 p-1 rounded-full hover:bg-blue-100" title="重新產生">${getIconHtml('refresh-cw', 14)}</button></div>`;
+            } else {
+                summaryContent = `<div class="mb-6 text-center"><button onclick="window.generateDaySummary(${activeDay})" class="px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-full text-sm font-medium shadow-md hover:shadow-lg transition-all transform active:scale-95 flex items-center mx-auto">${getIconHtml('sparkles', 16, 'mr-1')} AI 行程健檢</button></div>`;
+            }
+            const activitiesHtml = (currentDayData.activities || []).map(activity => {
+                const colorClass = getTypeColor(activity.type);
+                const imageSrc = activity.image && (activity.image.startsWith('http') || activity.image.startsWith('data:')) ? activity.image : 'https://placehold.co/400x120/f9f9f9/a3a3a3?text=No+Image';
+                const subItemsHtml = (activity.subItems || []).map(sub => `
+                    <div class="flex items-center mt-2 group/sub">
+                        <input type="checkbox" id="sub-${sub.id}" ${sub.checked ? 'checked' : ''} onchange="window.toggleSubItem(${activeDay}, '${activity.id}', '${sub.id}')" class="sub-item-checkbox h-4 w-4 text-rose-500 rounded border-gray-300 focus:ring-rose-500 cursor-pointer">
+                        <label for="sub-${sub.id}" class="ml-2 text-sm text-gray-600 flex-1 cursor-pointer select-none">${sub.text}</label>
+                        <button onclick="window.deleteSubItem(${activeDay}, '${activity.id}', '${sub.id}')" class="text-gray-300 hover:text-red-400 p-1 opacity-0 group-hover/sub:opacity-100 transition-opacity">${getIconHtml('x', 14)}</button>
+                    </div>`).join('');
+                const aiSubItemBtn = (llmLoading.type === 'subitems' && llmLoading.id === activity.id) ? `<span class="text-xs text-rose-500 flex items-center ml-2"><div class="animate-spin rounded-full h-3 w-3 border-b-2 border-rose-500 mr-1"></div></span>` : `<button onclick="window.generateSubItems(${activeDay}, '${activity.id}')" class="ml-2 text-rose-400 hover:text-rose-600 transition-colors" title="AI 建議細項">${getIconHtml('wand-2', 14)}</button>`;
+                return `<div class="relative pl-10 group mb-8">
+                        <div class="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200 group-last:hidden"></div>
+                        <div class="absolute left-0 top-4 w-8 h-8 rounded-full border-4 border-pink-50 shadow-md flex items-center justify-center z-10 ${colorClass.split(' ')[0]} ${colorClass.split(' ')[1]}">${getIconHtml(getIconName(activity.type), 18)}</div>
+                        <div class="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+                            <div class="h-32 w-full overflow-hidden relative group/image"><img src="${imageSrc}" class="w-full h-full object-cover"><button onclick="window.showEditActivityModal(${activeDay}, '${activity.id}')" class="absolute top-2 right-10 text-gray-700 bg-white/90 p-1.5 rounded-lg shadow-sm hover:text-rose-600 z-20">${getIconHtml('pencil', 16)}</button><button onclick="window.deleteActivity(${activeDay}, '${activity.id}', '${activity.title}')" class="absolute top-2 right-2 text-gray-700 bg-white/90 p-1.5 rounded-lg shadow-sm hover:text-red-600 z-20">${getIconHtml('x', 16)}</button></div>
+                            <div class="p-4 relative">
+                                <div class="flex justify-between items-start mb-2 pt-1"><div class="flex items-center text-gray-500 text-sm font-semibold">${getIconHtml('clock', 14, 'mr-1')} ${activity.time}</div><span class="text-xs px-3 py-1 rounded-full font-medium border ${colorClass}">${getTypeLabel(activity.type)}</span></div>
+                                <h3 class="text-lg font-bold text-gray-800 mb-2 group-hover:text-rose-600 transition-colors">${activity.title}</h3>
+                                <p class="text-gray-600 text-sm mb-4 leading-relaxed">${activity.description}</p>
+                                <div class="mt-4 pt-3 border-t border-gray-100"><h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center">行程細項 ${aiSubItemBtn}</h4><div class="space-y-1 mb-3">${subItemsHtml}</div><div class="flex items-center gap-2 mt-2"><input type="text" id="new-sub-${activity.id}" placeholder="新增細項..." class="flex-1 text-sm border-b border-gray-200 focus:outline-none py-1 px-1 bg-transparent" onkeypress="if(event.key === 'Enter') window.addSubItem(${activeDay}, '${activity.id}')"><button onclick="window.addSubItem(${activeDay}, '${activity.id}')" class="text-rose-500 hover:text-rose-700">${getIconHtml('plus-circle', 16)}</button></div></div>
+                                <div class="mt-4 pt-3 border-t border-gray-100 bg-gray-50/50 -mx-4 -mb-4 p-4"><div class="flex justify-between items-center mb-2"><h4 class="text-sm font-semibold text-gray-600 flex items-center">${getIconHtml('notebook-text', 14, 'mr-1')} 備註:</h4><button onclick="window.showEditActivityModal(${activeDay}, '${activity.id}')" class="text-xs text-rose-500 hover:text-rose-700 flex items-center transition-colors font-medium">${getIconHtml('edit-2', 12, 'mr-1')} 編輯</button></div><div class="text-sm text-gray-700 p-2 rounded-lg bg-white border border-gray-200 break-words note-content" style="white-space: pre-wrap;">${formatNotes(activity.notes)}</div><a href="${getMapLink(activity.mapQuery)}" target="_blank" class="mt-3 flex items-center justify-center w-full py-2 bg-white hover:bg-rose-50 text-gray-600 hover:text-rose-600 rounded-lg text-sm font-medium border border-gray-200 shadow-sm transition-colors">${getIconHtml('map', 16, 'mr-2')} 查看地圖</a></div>
+                            </div></div></div>`;
+            }).join('');
+            return `<div class="flex bg-white shadow-sm shrink-0 overflow-x-auto no-scrollbar sticky top-0 z-10 border-b border-gray-200">${dayTabs}</div><div class="p-4 pb-20 animate-fade-in"><div class="mb-6 pt-2"><h2 class="text-xl font-bold text-gray-800 mb-2">${currentDayData.title}</h2><div class="h-1 w-10 bg-rose-500 rounded-full"></div></div>${summaryContent}<div class="space-y-0 relative">${activitiesHtml}</div><div class="mt-8 text-center"><button onclick="window.showAddActivityModal(${activeDay})" class="flex items-center justify-center px-6 py-3 bg-rose-600 text-white rounded-full font-semibold shadow-lg hover:bg-rose-700 transition-all transform active:scale-95 text-sm">${getIconHtml('plus-circle', 18, 'mr-2')} + 新增活動 (Day ${activeDay})</button></div><div class="mt-8 text-center text-gray-400 text-xs pb-4">🌸 資料已連線雲端同步 🌸</div></div>`;
+        };
+        
+        const renderPacking = () => {
+            const categorizedListHtml = packingList.map(categoryGroup => `
+                <div class="mb-8 p-4 bg-white rounded-xl shadow-lg border border-gray-100"><h3 class="text-xl font-bold text-gray-700 mb-4 border-l-4 border-gray-500 pl-3 flex items-center">${getIconHtml('package', 18, 'mr-2 text-gray-600')} ${categoryGroup.category}</h3><div class="space-y-3">${(categoryGroup.items || []).map(item => `<div class="flex items-center bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-3 transition-all hover:shadow-md"><input type="checkbox" ${item.checked ? 'checked' : ''} onchange="window.togglePackingItem('${item.id}')" class="form-checkbox h-5 w-5 text-gray-600 border-gray-300 rounded-md cursor-pointer checked:bg-gray-600 focus:ring-gray-500 mr-4"><label class="flex-1 text-gray-800 text-base cursor-pointer ${item.checked ? 'line-through text-gray-400 italic' : 'font-medium'}">${item.text}</label><button onclick="window.deletePackingItem('${item.id}', '${item.text}')" class="text-gray-300 hover:text-red-500 ml-3 p-1">${getIconHtml('trash-2', 16)}</button></div>`).join('')}</div></div>`).join('');
+            const categoryOptions = packingList.map(g => `<option value="${g.category}">${g.category}</option>`).join('');
+            return `<div class="p-4 pb-20 animate-fade-in"><h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center">${getIconHtml('list-checks', 24, 'mr-2 text-gray-700')} 旅行打包清單</h2><div class="mb-8 space-y-4">${categorizedListHtml}</div><div class="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-200 shadow-inner"><h3 class="text-lg font-semibold text-gray-700 mb-3 flex items-center">${getIconHtml('plus-square', 18, 'mr-2')} 新增項目</h3><div class="space-y-3"><div><label class="block text-sm font-medium text-gray-700 mb-1">選擇分類</label><select id="newPackingItemCategory" class="w-full p-3 border border-gray-300 rounded-lg bg-white">${categoryOptions}</select></div><div><label class="block text-sm font-medium text-gray-700 mb-1">項目名稱</label><div class="flex space-x-2"><input type="text" id="newPackingItemText" class="flex-1 p-3 border border-gray-300 rounded-lg"><button onclick="window.addPackingItem()" class="px-4 py-3 bg-gray-600 text-white rounded-lg shadow-md active:scale-95">加入</button></div></div></div></div></div>`;
+        };
+
+        const renderFerry = () => {
+            const renderTimes = (times) => times.map(item => `<div class="flex justify-between p-4 rounded-xl border ${item.recommend ? 'bg-teal-50 border-teal-300 shadow-md' : 'bg-white border-gray-200'} mb-3"><span class="text-xl font-bold text-gray-700">${item.time}</span>${item.recommend ? '<span class="text-xs bg-teal-200 px-3 py-1 rounded-full font-bold">推薦</span>' : ''}</div>`).join('');
+            return `<div class="p-4 animate-fade-in"><h2 class="text-2xl font-bold text-gray-800 mb-4">相島渡輪時刻表</h2><div class="mb-8 p-4 bg-teal-50 rounded-xl border border-teal-200"><h3 class="font-bold text-teal-700 mb-3">去程：新宮港 → 相島</h3>${renderTimes(ferrySchedule.toIsland)}</div><div class="mb-8 p-4 bg-teal-50 rounded-xl border border-teal-200"><h3 class="font-bold text-teal-700 mb-3">回程：相島 → 新宮港</h3>${renderTimes(ferrySchedule.fromIsland)}</div></div>`;
+        };
+
+        // --- NEW: Shopping List Render ---
+        const renderShopping = () => {
+            const itemsHtml = shoppingList.map(item => `
+                <div class="bg-white rounded-xl shadow-md overflow-hidden border border-gray-100 flex flex-col group relative">
+                    <div class="h-32 w-full bg-gray-100 relative">
+                         <img src="${item.image && (item.image.startsWith('http') || item.image.startsWith('data:')) ? item.image : 'https://placehold.co/400x300/f3f4f6/9ca3af?text=No+Image'}" class="w-full h-full object-cover">
+                         <div class="absolute top-2 right-2 flex gap-1">
+                             <button onclick="window.showEditShoppingModal('${item.id}')" class="bg-white/80 hover:bg-white hover:text-blue-500 p-1.5 rounded-full shadow-sm transition-colors">${getIconHtml('pencil', 14)}</button>
+                             <button onclick="window.deleteShoppingItem('${item.id}', '${item.name}')" class="bg-white/80 hover:bg-white hover:text-red-500 p-1.5 rounded-full shadow-sm transition-colors">${getIconHtml('trash-2', 14)}</button>
+                         </div>
+                    </div>
+                    <div class="p-3 flex-1 flex flex-col">
+                        <div class="flex justify-between items-start mb-1">
+                             <h4 class="font-bold text-gray-800 text-sm line-clamp-2 ${item.bought ? 'line-through text-gray-400' : ''}">${item.name}</h4>
+                             <input type="checkbox" ${item.bought ? 'checked' : ''} onchange="window.toggleShoppingItem('${item.id}')" class="form-checkbox h-5 w-5 text-purple-500 border-gray-300 rounded cursor-pointer mt-0.5">
+                        </div>
+                        <div class="text-xs text-gray-500 line-clamp-2 flex-1 note-content">${formatNotes(item.note || '無備註')}</div>
+                    </div>
+                </div>
+            `).join('');
+            return `<div class="p-4 pb-20 animate-fade-in"><h2 class="text-2xl font-bold text-gray-800 mb-4 flex items-center">${getIconHtml('shopping-bag', 24, 'mr-2 text-purple-600')} 購物清單</h2><div class="grid grid-cols-2 gap-4 mb-6">${itemsHtml || '<div class="col-span-2 text-center text-gray-400 py-8 italic">還沒想好要買什麼嗎？</div>'}</div><div class="fixed bottom-24 right-6 z-30"><button onclick="window.showAddShoppingModal()" class="bg-purple-600 text-white p-4 rounded-full shadow-lg hover:bg-purple-700 transition-transform active:scale-95 flex items-center justify-center">${getIconHtml('plus', 24)}</button></div></div>`;
+        };
+
+        // FIXED: Exchange Render with Correct Delete Button
+        const renderExchange = () => {
+            const memberListHtml = members.map((m) => `
+                <div class="flex items-center bg-white border border-gray-200 rounded-full px-3 py-1 text-sm group">
+                    <span onclick="window.showEditMemberModal('${m}')" class="cursor-pointer hover:text-blue-600 mr-1">${m}</span>
+                    <button onclick="window.removeMember('${m}')" class="ml-1 text-gray-400 hover:text-red-500 opacity-100">${getIconHtml('x', 12)}</button>
+                </div>
+            `).join('');
+            
+            const expenseHistoryHtml = expenses.map(exp => `
+                <tr class="text-sm border-b border-gray-100 hover:bg-gray-50">
+                    <td class="py-2 px-1 text-gray-700 font-medium">${exp.title}</td>
+                    <td class="py-2 px-1 text-right font-mono text-rose-600">¥${parseInt(exp.amount).toLocaleString()}</td>
+                    <td class="py-2 px-1 text-gray-500 text-center">${exp.payer}</td>
+                    <td class="py-2 px-1 text-right flex justify-end gap-1"><button onclick="window.showEditExpenseModal('${exp.id}')" class="text-gray-400 hover:text-blue-500 p-1">${getIconHtml('pencil', 14)}</button><button onclick="window.deleteExpense('${exp.id}')" class="text-gray-400 hover:text-red-500 p-1">${getIconHtml('trash-2', 14)}</button></td>
+                </tr>`).join('');
+
+            // ... [Calculation Logic Same as Before] ...
+            const balances = {}; members.forEach(m => balances[m] = 0);
+            expenses.forEach(exp => {
+                const splitAmount = exp.amount / (exp.involved?.length || 1);
+                if(balances[exp.payer] !== undefined) balances[exp.payer] += parseFloat(exp.amount);
+                (exp.involved || []).forEach(p => { if(balances[p] !== undefined) balances[p] -= splitAmount; });
+            });
+            const settlements = [], debtors = [], creditors = [];
+            for(const [p, amt] of Object.entries(balances)) { if(amt < -1) debtors.push({p, amt}); else if(amt > 1) creditors.push({p, amt}); }
+            debtors.sort((a,b)=>a.amt-b.amt); creditors.sort((a,b)=>b.amt-a.amt);
+            let i=0, j=0;
+            while(i<debtors.length && j<creditors.length){
+                const amount = Math.min(Math.abs(debtors[i].amt), creditors[j].amt);
+                const twd = Math.ceil(amount * currentExchangeRate);
+                settlements.push(`${debtors[i].p} 給 ${creditors[j].p}: ¥${Math.ceil(amount).toLocaleString()} (NT$${twd})`);
+                debtors[i].amt += amount; creditors[j].amt -= amount;
+                if(Math.abs(debtors[i].amt)<1) i++; if(creditors[j].amt<1) j++;
+            }
+            const settlementHtml = settlements.length ? `<ul class="space-y-2 mt-2">${settlements.map(s=>`<li class="bg-green-50 text-green-800 p-2 rounded border border-green-200 text-sm font-bold flex items-center">${getIconHtml('arrow-right', 14, 'mr-2')} ${s}</li>`).join('')}</ul>` : `<p class="text-center text-gray-400 text-sm italic py-2">目前帳目已平衡</p>`;
+
+            const memberCheckboxes = members.map(m => `<label class="flex items-center space-x-1 bg-gray-50 px-2 py-1 rounded border cursor-pointer"><input type="checkbox" class="inv-check text-rose-500 rounded" value="${m}" checked><span class="text-xs">${m}</span></label>`).join('');
+            const payerOptions = members.map(m => `<option value="${m}">${m}</option>`).join('');
+
+            return `<div class="p-4 pb-20 animate-fade-in space-y-6">
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4"><h3 class="text-sm font-bold text-gray-500 mb-3 flex justify-between"><span>${getIconHtml('coins', 16, 'mr-1 text-yellow-500')} 匯率換算</span><button onclick="window.updateRateFromApi()" class="text-blue-500 hover:underline text-xs">更新匯率</button></h3><div class="flex items-center gap-2 mb-3 text-sm bg-blue-50 p-2 rounded"><span class="text-gray-500">1 JPY =</span><input type="number" id="exchangeRate" value="${currentExchangeRate}" step="0.0001" onchange="window.updateManualRate()" class="w-16 text-center bg-transparent border-b border-blue-300 font-mono font-bold text-blue-700"><span class="text-gray-500">TWD</span></div><div class="flex gap-3"><div class="relative flex-1"><input type="number" id="jpyInput" placeholder="JPY" oninput="window.calculateTWD()" class="w-full border p-2 pl-2 pr-8 rounded font-bold text-gray-700"><span class="absolute right-2 top-2 text-xs text-gray-400">¥</span></div><div class="relative flex-1"><input type="number" id="twdInput" placeholder="TWD" oninput="window.calculateJPY()" class="w-full border p-2 pl-2 pr-8 rounded font-bold text-gray-700"><span class="absolute right-2 top-2 text-xs text-gray-400">$</span></div></div></div>
+                <div class="bg-white rounded-xl shadow-lg border border-gray-100 p-5"><h2 class="text-lg font-bold text-gray-800 mb-3 flex items-center">${getIconHtml('users', 20, 'mr-2 text-rose-500')} 旅伴成員</h2><div class="flex flex-wrap gap-2 mb-3">${memberListHtml}</div><div class="flex gap-2"><input type="text" id="newMemberName" placeholder="新增名字..." class="flex-1 border p-2 rounded text-sm"><button onclick="window.addMember()" class="bg-rose-500 text-white px-3 py-1 rounded text-sm hover:bg-rose-600">新增</button></div></div>
+                <div class="bg-rose-50 rounded-xl shadow-inner border border-rose-100 p-5"><h2 class="text-lg font-bold text-gray-800 mb-3 flex items-center">${getIconHtml('plus-circle', 20, 'mr-2 text-rose-600')} 新增帳目</h2><div class="space-y-3"><input type="text" id="expTitle" placeholder="消費項目 (如: 晚餐)" class="w-full border p-2 rounded text-sm"><div class="flex gap-2"><input type="number" id="expAmount" placeholder="金額 (JPY)" class="w-2/3 border p-2 rounded text-sm"><select id="expPayer" class="w-1/3 border p-2 rounded text-sm bg-white">${payerOptions}</select></div><div><label class="text-xs text-gray-500 mb-1 block">分攤給：</label><div class="flex flex-wrap gap-2" id="expInvolved">${memberCheckboxes}</div></div><button onclick="window.addExpense()" class="w-full bg-rose-600 text-white py-2 rounded-lg font-bold shadow-md hover:bg-rose-700 active:scale-95 transition-transform">記一筆</button></div></div>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden"><div class="p-3 bg-gray-50 border-b font-bold text-sm text-gray-600 flex justify-between"><span>消費明細</span><span>${expenses.length} 筆</span></div><div class="max-h-60 overflow-y-auto"><table class="expense-table"><thead><tr><th>項目</th><th class="text-right">金額</th><th>付款</th><th></th></tr></thead><tbody>${expenseHistoryHtml}</tbody></table></div></div>
+                <div class="bg-indigo-50 rounded-xl shadow-md border border-indigo-100 p-5"><h2 class="text-lg font-bold text-indigo-800 mb-2 flex items-center">${getIconHtml('calculator', 20, 'mr-2')} 結算建議</h2>${settlementHtml}</div>
+            </div>`;
+        };
+
+        // --- Interaction Functions ---
+        window.setActiveTab = (id) => { activeTab = id; saveLocalState(); renderApp(); };
+        window.setActiveDay = (day) => { activeDay = day; saveLocalState(); renderApp(); };
+        window.togglePackingItem = (id) => { packingList.forEach(g => { const i = g.items.find(x=>x.id===id); if(i) i.checked=!i.checked; }); saveToCloud(); renderApp(); };
+        window.addPackingItem = () => { const cat = document.getElementById('newPackingItemCategory').value; const text = document.getElementById('newPackingItemText').value.trim(); if(text) { const g = packingList.find(x=>x.category===cat); if(g) g.items.push({id:crypto.randomUUID(), text, checked:false}); document.getElementById('newPackingItemText').value=''; saveToCloud(); renderApp(); }};
+        window.deletePackingItem = (id, name) => { 
+            showCustomModal({
+                title: '確認刪除', body: `確定要從清單中移除「${name}」嗎？`, confirmText: '移除', cancelText: '取消',
+                onConfirm: () => { packingList.forEach(g => { g.items = g.items.filter(x=>x.id!==id); }); saveToCloud(); renderApp(); closeModal(); }
+            });
+        };
+        
+        window.addSubItem = (dayNum, actId) => { const day = itinerary.find(d => d.day === dayNum); const act = day?.activities.find(a => a.id === actId); const input = document.getElementById(`new-sub-${actId}`); if (act && input.value.trim()) { if (!act.subItems) act.subItems = []; act.subItems.push({ id: crypto.randomUUID(), text: input.value.trim(), checked: false }); saveToCloud(); renderApp(); }};
+        window.toggleSubItem = (dayNum, actId, subId) => { const day = itinerary.find(d => d.day === dayNum); const act = day?.activities.find(a => a.id === actId); const sub = act?.subItems.find(s => s.id === subId); if(sub) { sub.checked = !sub.checked; saveToCloud(); renderApp(); }};
+        window.deleteSubItem = (dayNum, actId, subId) => { const day = itinerary.find(d => d.day === dayNum); const act = day?.activities.find(a => a.id === actId); if(act) { act.subItems = act.subItems.filter(s => s.id !== subId); saveToCloud(); renderApp(); }};
+
+        window.deleteActivity = (dayNum, actId, title) => { 
+            showCustomModal({
+                title: '確認刪除行程', body: `確定要從 Day ${dayNum} 移除活動「${title}」嗎？`, confirmText: '移除', cancelText: '取消',
+                onConfirm: () => { const day = itinerary.find(d => d.day === dayNum); if (day) { day.activities = day.activities.filter(a => a.id !== actId); saveToCloud(); renderApp(); } closeModal(); }
+            });
+        };
+
+        // Split Bill & Exchange
+        window.calculateTWD = () => { const jpy = parseFloat(document.getElementById('jpyInput').value)||0; document.getElementById('twdInput').value = (jpy*currentExchangeRate).toFixed(0); };
+        window.calculateJPY = () => { const twd = parseFloat(document.getElementById('twdInput').value)||0; document.getElementById('jpyInput').value = (twd/currentExchangeRate).toFixed(0); };
+        window.updateManualRate = () => { const r = parseFloat(document.getElementById('exchangeRate').value); if(r>0){ currentExchangeRate=r; localStorage.setItem('local_exchangeRate', r); window.calculateTWD(); renderApp(); }};
+        window.updateRateFromApi = async () => { try { const res = await fetch('https://api.exchangerate-api.com/v4/latest/JPY'); const data = await res.json(); if(data.rates.TWD){ currentExchangeRate=data.rates.TWD; localStorage.setItem('local_exchangeRate', currentExchangeRate); alert(`匯率更新：${currentExchangeRate}`); renderApp(); }} catch(e){alert('更新失敗');}};
+
+        // [FIXED] Using Custom Modal for Delete, avoiding browser confirm() blocking issues
+        window.addMember = () => { const n = document.getElementById('newMemberName').value.trim(); if(n && !members.includes(n)) { members.push(n); document.getElementById('newMemberName').value=''; saveToCloud(); renderApp(); }};
+        window.removeMember = (nameVal) => { 
+            showCustomModal({
+                title: '移除成員', body: `確定移除 ${nameVal}？\n這可能會影響已存在的帳目計算。`, confirmText: '移除', cancelText: '取消',
+                onConfirm: () => {
+                    members = members.filter(m => m !== nameVal); 
+                    expenses.forEach(e => {
+                        if(e.involved) e.involved = e.involved.filter(inv => inv !== nameVal);
+                        if(e.payer === nameVal && members.length > 0) e.payer = members[0];
+                    });
+                    saveToCloud(); renderApp(); closeModal();
+                }
+            });
+        };
+        window.showEditMemberModal = (oldName) => {
+            openModal(`
+                <h3 class="font-bold text-lg mb-4">修改成員名稱</h3>
+                <input type="text" id="editMemberInput" value="${oldName}" class="w-full border p-2 rounded mb-4">
+                <div class="flex justify-end gap-2">
+                    <button onclick="closeModal()" class="px-3 py-1 bg-gray-200 rounded">取消</button>
+                    <button onclick="window.saveMemberName('${oldName}')" class="px-3 py-1 bg-rose-500 text-white rounded">儲存</button>
+                </div>
+            `);
+        };
+        window.saveMemberName = (oldName) => {
+            const newName = document.getElementById('editMemberInput').value.trim();
+            if (newName && newName !== oldName && !members.includes(newName)) {
+                const idx = members.indexOf(oldName);
+                if (idx !== -1) members[idx] = newName;
+                // Update expenses
+                expenses.forEach(e => {
+                    if (e.payer === oldName) e.payer = newName;
+                    const invIdx = e.involved.indexOf(oldName);
+                    if (invIdx !== -1) e.involved[invIdx] = newName;
+                });
+                saveToCloud();
+                renderApp();
+                closeModal();
+            }
+        };
+
+        window.addExpense = () => {
+            const t = document.getElementById('expTitle').value.trim(), a = parseFloat(document.getElementById('expAmount').value), p = document.getElementById('expPayer').value;
+            const inv = []; document.querySelectorAll('#expInvolved .inv-check:checked').forEach(c => inv.push(c.value));
+            if(!t || !a || !p || !inv.length) { alert('請填寫完整資訊'); return; }
+            expenses.push({id:crypto.randomUUID(), title:t, amount:a, payer:p, involved:inv, date:new Date().toISOString()});
+            saveToCloud(); renderApp();
+        };
+        
+        window.deleteExpense = (id) => { 
+            showCustomModal({
+                title: '刪除帳目', body: '確定要刪除此筆消費紀錄嗎？', confirmText: '刪除', cancelText: '取消',
+                onConfirm: () => { expenses = expenses.filter(e=>e.id!==id); saveToCloud(); renderApp(); closeModal(); }
+            });
+        };
+        
+        window.showEditExpenseModal = (id) => {
+            const exp = expenses.find(e => e.id === id);
+            if(!exp) return;
+            const payerOptions = members.map(m => `<option value="${m}" ${m===exp.payer?'selected':''}>${m}</option>`).join('');
+            const involvedChecks = members.map(m => `<label class="flex items-center space-x-1 bg-gray-50 px-2 py-1 rounded border cursor-pointer"><input type="checkbox" class="inv-check-edit text-rose-500 rounded" value="${m}" ${exp.involved.includes(m)?'checked':''}><span class="text-xs">${m}</span></label>`).join('');
+            
+            openModal(`
+                <h3 class="font-bold text-lg mb-4">編輯帳目</h3>
+                <div class="space-y-3">
+                    <input type="text" id="editExpTitle" value="${exp.title}" class="w-full border p-2 rounded text-sm" placeholder="項目">
+                    <div class="flex gap-2"><input type="number" id="editExpAmount" value="${exp.amount}" class="w-2/3 border p-2 rounded text-sm"><select id="editExpPayer" class="w-1/3 border p-2 rounded text-sm bg-white">${payerOptions}</select></div>
+                    <div><label class="text-xs text-gray-500 mb-1 block">分攤給：</label><div class="flex flex-wrap gap-2" id="editExpInvolved">${involvedChecks}</div></div>
+                </div>
+                <div class="mt-4 flex justify-end gap-2"><button onclick="closeModal()" class="px-3 py-1 bg-gray-200 rounded">取消</button><button onclick="window.saveEditedExpense('${id}')" class="px-3 py-1 bg-rose-500 text-white rounded">儲存</button></div>
+            `);
+        };
+        window.saveEditedExpense = (id) => {
+            const exp = expenses.find(e => e.id === id);
+            if(exp) {
+                const t = document.getElementById('editExpTitle').value.trim();
+                const a = parseFloat(document.getElementById('editExpAmount').value);
+                const p = document.getElementById('editExpPayer').value;
+                const inv = []; document.querySelectorAll('#editExpInvolved .inv-check-edit:checked').forEach(c => inv.push(c.value));
+                
+                if(!t || !a || !inv.length) { alert('請填寫完整'); return; }
+                
+                exp.title = t; exp.amount = a; exp.payer = p; exp.involved = inv;
+                saveToCloud(); renderApp(); closeModal();
+            }
+        };
+
+        // [NEW] Shopping List Interactions
+        window.showAddShoppingModal = () => {
+            tempImageBase64 = '';
+            openModal(`
+                <h3 class="font-bold text-xl mb-4">新增購物項目</h3>
+                <form onsubmit="event.preventDefault(); window.addShoppingItem()">
+                    <div class="space-y-3">
+                        <input id="shopName" class="w-full border p-2 rounded" placeholder="商品名稱 (必填)" required>
+                        <div>
+                             <label class="block text-xs mb-1 font-medium text-gray-500">商品圖片</label>
+                             <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:bg-gray-50 transition-colors">
+                                <input type="file" id="shopImageFile" accept="image/*" class="hidden" onchange="window.handleImageUpload(this)">
+                                <label for="shopImageFile" class="cursor-pointer flex flex-col items-center justify-center">
+                                    ${getIconHtml('image', 24, 'text-gray-400 mb-1')}
+                                    <span class="text-xs text-gray-500">點擊上傳圖片 (或貼上網址)</span>
+                                </label>
+                                <input type="text" id="shopImage" placeholder="或是貼上圖片網址..." class="mt-2 w-full border-b border-gray-300 text-xs p-1 focus:outline-none bg-transparent text-center">
+                                <img id="imagePreview" src="" class="hidden mt-2 max-h-24 rounded mx-auto object-cover">
+                             </div>
+                        </div>
+                        
+                        <div class="border-t pt-2 bg-gray-50 p-2 rounded">
+                             <div class="flex justify-between items-center mb-2">
+                                <label class="text-xs font-bold">備註 (支援連結)</label>
+                                <button type="button" onclick="window.toggleLinkInput()" class="text-xs bg-purple-100 text-purple-600 px-2 py-1 rounded flex items-center hover:bg-purple-200">${getIconHtml('link', 12, 'mr-1')} 連結</button>
+                             </div>
+                             <div id="link-input-section" class="hidden mb-2 p-2 bg-white border rounded">
+                                <div class="grid gap-2 mb-2">
+                                    <input id="link-name-input" placeholder="連結名稱" class="border p-1 text-xs rounded w-full">
+                                    <input id="link-url-input" placeholder="網址" class="border p-1 text-xs rounded w-full">
+                                </div>
+                                <div class="flex justify-end gap-2">
+                                    <button type="button" onclick="window.toggleLinkInput()" class="text-xs text-gray-500">取消</button>
+                                    <button type="button" onclick="window.confirmInsertLink('shopNote')" class="bg-purple-500 text-white text-xs px-2 py-1 rounded">插入</button>
+                                </div>
+                             </div>
+                             <textarea id="shopNote" class="w-full border p-2 rounded h-16 text-sm" placeholder="例如: 價格、規格"></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex justify-end gap-2">
+                        <button type="button" onclick="window.closeModal()" class="px-3 py-1 bg-gray-200 rounded">取消</button>
+                        <button type="submit" class="px-3 py-1 bg-purple-600 text-white rounded">新增</button>
+                    </div>
+                </form>
+            `);
+        };
+        
+        window.addShoppingItem = () => {
+            const name = document.getElementById('shopName').value.trim();
+            if(!name) return;
+            const imgUrl = document.getElementById('shopImage').value.trim();
+            const note = document.getElementById('shopNote').value.trim();
+            
+            shoppingList.push({
+                id: crypto.randomUUID(),
+                name,
+                note,
+                image: tempImageBase64 || imgUrl,
+                bought: false
+            });
+            saveToCloud(); window.closeModal(); renderApp();
+        };
+        
+        // [NEW] Edit Shopping Item
+        window.showEditShoppingModal = (id) => {
+            const item = shoppingList.find(i => i.id === id);
+            if (!item) return;
+            tempImageBase64 = ''; 
+            const currentImage = item.image || '';
+
+            openModal(`
+                <h3 class="font-bold text-xl mb-4">編輯商品</h3>
+                <form onsubmit="event.preventDefault(); window.saveEditedShoppingItem('${id}')">
+                    <div class="space-y-3">
+                        <input id="editShopName" class="w-full border p-2 rounded" value="${item.name}" required>
+                        <div>
+                             <label class="block text-xs mb-1 font-medium text-gray-500">商品圖片</label>
+                             <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:bg-gray-50 transition-colors">
+                                <input type="file" id="editShopImageFile" accept="image/*" class="hidden" onchange="window.handleImageUpload(this)">
+                                <label for="editShopImageFile" class="cursor-pointer flex flex-col items-center justify-center">
+                                    ${getIconHtml('image', 24, 'text-gray-400 mb-1')}
+                                    <span class="text-xs text-gray-500">點擊更換圖片</span>
+                                </label>
+                                <input type="text" id="editShopImage" value="${currentImage.startsWith('data:')?'':currentImage}" placeholder="或是貼上圖片網址..." class="mt-2 w-full border-b border-gray-300 text-xs p-1 focus:outline-none bg-transparent text-center">
+                                <img id="imagePreview" src="${currentImage}" class="${currentImage?'':'hidden'} mt-2 max-h-24 rounded mx-auto object-cover">
+                             </div>
+                        </div>
+                        <div class="border-t pt-2 bg-gray-50 p-2 rounded">
+                             <div class="flex justify-between items-center mb-2">
+                                <label class="text-xs font-bold">備註</label>
+                                <button type="button" onclick="window.toggleLinkInput()" class="text-xs bg-purple-100 text-purple-600 px-2 py-1 rounded flex items-center hover:bg-purple-200">${getIconHtml('link', 12, 'mr-1')} 連結</button>
+                             </div>
+                             <div id="link-input-section" class="hidden mb-2 p-2 bg-white border rounded">
+                                <div class="grid gap-2 mb-2">
+                                    <input id="link-name-input" placeholder="連結名稱" class="border p-1 text-xs rounded w-full">
+                                    <input id="link-url-input" placeholder="網址" class="border p-1 text-xs rounded w-full">
+                                </div>
+                                <div class="flex justify-end gap-2">
+                                    <button type="button" onclick="window.toggleLinkInput()" class="text-xs text-gray-500">取消</button>
+                                    <button type="button" onclick="window.confirmInsertLink('editShopNote')" class="bg-purple-500 text-white text-xs px-2 py-1 rounded">插入</button>
+                                </div>
+                             </div>
+                             <textarea id="editShopNote" class="w-full border p-2 rounded h-20 text-sm">${item.note || ''}</textarea>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex justify-end gap-2">
+                        <button type="button" onclick="window.closeModal()" class="px-3 py-1 bg-gray-200 rounded">取消</button>
+                        <button type="submit" class="px-3 py-1 bg-purple-600 text-white rounded">儲存</button>
+                    </div>
+                </form>
+            `);
+        };
+        
+        window.saveEditedShoppingItem = (id) => {
+            const item = shoppingList.find(i => i.id === id);
+            if (item) {
+                item.name = document.getElementById('editShopName').value.trim();
+                item.note = document.getElementById('editShopNote').value.trim();
+                const imgUrl = document.getElementById('editShopImage').value.trim();
+                if (tempImageBase64) item.image = tempImageBase64;
+                else if (imgUrl) item.image = imgUrl;
+                
+                saveToCloud();
+                window.closeModal();
+                renderApp();
+            }
+        };
+
+        window.toggleShoppingItem = (id) => { const item = shoppingList.find(i => i.id === id); if(item) { item.bought = !item.bought; saveToCloud(); renderApp(); }};
+        
+        window.deleteShoppingItem = (id, name) => { 
+            showCustomModal({
+                title: '移除商品', body: `確定從清單中移除 ${name}？`, confirmText: '移除', cancelText: '取消',
+                onConfirm: () => { shoppingList = shoppingList.filter(i => i.id !== id); saveToCloud(); renderApp(); closeModal(); }
+            });
+        };
+
+        // Activity Modals & Logic (Same as previous)
+        window.showAddActivityModal = (dayNum) => {
+            tempImageBase64 = '';
+            openModal(`
+                <h3 class="font-bold text-xl mb-4">新增活動 (Day ${dayNum})</h3>
+                <form onsubmit="event.preventDefault(); window.saveNewActivity(${dayNum})">
+                    <div class="space-y-3">
+                        <input id="actTitle" class="w-full border p-2 rounded" placeholder="標題 (必填)" required>
+                        <div class="flex gap-2">
+                             <input id="actTime" type="time" class="w-full border p-2 rounded" value="12:00" required>
+                             <select id="actType" class="w-full border p-2 rounded">${Object.keys(ACTIVITY_TYPES).map(k=>`<option value="${k}">${ACTIVITY_TYPES[k].label}</option>`).join('')}</select>
+                        </div>
+                        <div>
+                             <label class="block text-xs mb-1 font-medium text-gray-500">活動圖片</label>
+                             <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:bg-gray-50 transition-colors">
+                                <input type="file" id="actImageFile" accept="image/*" class="hidden" onchange="window.handleImageUpload(this)">
+                                <label for="actImageFile" class="cursor-pointer flex flex-col items-center justify-center">
+                                    ${getIconHtml('image', 24, 'text-gray-400 mb-1')}
+                                    <span class="text-xs text-gray-500">點擊上傳圖片 (或貼上網址)</span>
+                                </label>
+                                <input type="text" id="actImage" placeholder="或是貼上圖片網址..." class="mt-2 w-full border-b border-gray-300 text-xs p-1 focus:outline-none bg-transparent text-center">
+                                <img id="imagePreview" src="" class="hidden mt-2 max-h-24 rounded mx-auto object-cover">
+                             </div>
+                        </div>
+                        <textarea id="actDescription" class="w-full border p-2 rounded" placeholder="簡短描述"></textarea>
+                        <input id="actMapQuery" class="w-full border p-2 rounded" placeholder="地圖搜尋關鍵字">
+                        
+                        <div class="border-t pt-2 bg-gray-50 p-2 rounded">
+                             <div class="flex justify-between items-center mb-2">
+                                <label class="text-xs font-bold">備註</label>
+                                <button type="button" onclick="window.toggleLinkInput()" class="text-xs bg-rose-100 text-rose-600 px-2 py-1 rounded flex items-center hover:bg-rose-200">${getIconHtml('link', 12, 'mr-1')} 插入連結</button>
+                             </div>
+                             <div id="link-input-section" class="hidden mb-2 p-2 bg-white border rounded">
+                                <div class="grid gap-2 mb-2">
+                                    <input id="link-name-input" placeholder="連結名稱" class="border p-1 text-xs rounded w-full">
+                                    <input id="link-url-input" placeholder="網址 (https://...)" class="border p-1 text-xs rounded w-full">
+                                </div>
+                                <div class="flex justify-end gap-2">
+                                    <button type="button" onclick="window.toggleLinkInput()" class="text-xs text-gray-500">取消</button>
+                                    <button type="button" onclick="window.confirmInsertLink('actNotes')" class="bg-rose-500 text-white text-xs px-2 py-1 rounded">插入</button>
+                                </div>
+                             </div>
+                             <textarea id="actNotes" class="w-full border p-2 rounded h-20 text-sm" placeholder="相關資訊、網址..."></textarea>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex justify-end gap-2">
+                        <button type="button" onclick="window.closeModal()" class="px-3 py-1 bg-gray-200 rounded">取消</button>
+                        <button type="submit" class="px-3 py-1 bg-rose-500 text-white rounded">新增</button>
+                    </div>
+                </form>`);
+        };
+
+        window.saveNewActivity = (dayNum) => {
+            const day = itinerary.find(d => d.day === dayNum);
+            const title = document.getElementById('actTitle').value.trim();
+            if (!day || !title) return;
+            
+            const imgUrl = document.getElementById('actImage').value.trim();
+            const finalImage = tempImageBase64 || imgUrl;
+
+            day.activities.push({
+                id: crypto.randomUUID(),
+                time: document.getElementById('actTime').value,
+                title: title,
+                type: document.getElementById('actType').value,
+                description: document.getElementById('actDescription').value.trim(),
+                mapQuery: document.getElementById('actMapQuery').value.trim() || title,
+                image: finalImage,
+                notes: document.getElementById('actNotes').value,
+                subItems: []
+            });
+            day.activities.sort((a, b) => a.time.localeCompare(b.time));
+            saveToCloud();
+            window.closeModal();
+            renderApp();
+        };
+
+        window.showEditActivityModal = (dayNum, actId) => {
+            const day = itinerary.find(d => d.day === dayNum);
+            const activity = day?.activities.find(a => a.id === actId);
+            if (!activity) return;
+            tempImageBase64 = '';
+            const currentImage = activity.image || '';
+            const types = Object.keys(ACTIVITY_TYPES).map(k => `<option value="${k}" ${k === activity.type ? 'selected' : ''}>${ACTIVITY_TYPES[k].label}</option>`).join('');
+            
+            const dayOptions = itinerary.map(d => 
+                `<option value="${d.day}" ${d.day === dayNum ? 'selected' : ''}>Day ${d.day} - ${d.date.split(' ')[0]}</option>`
+            ).join('');
+
+            openModal(`
+                <h3 class="font-bold text-xl mb-4">編輯活動</h3>
+                <form onsubmit="event.preventDefault(); window.saveEditedActivity(${dayNum}, '${actId}')">
+                    <div class="space-y-3">
+                        <input id="editTitle" class="w-full border p-2 rounded" value="${activity.title}" required>
+                        <div class="flex gap-2">
+                             <div class="flex-1"><label class="text-xs font-bold text-gray-500 block mb-1">日期</label><select id="editDay" class="w-full border p-2 rounded">${dayOptions}</select></div>
+                             <div class="flex-1"><label class="text-xs font-bold text-gray-500 block mb-1">時間</label><input id="editTime" type="time" class="w-full border p-2 rounded" value="${activity.time}" required></div>
+                        </div>
+                        <div><label class="text-xs font-bold text-gray-500 block mb-1">類型</label><select id="editType" class="w-full border p-2 rounded">${types}</select></div>
+                        <div>
+                             <label class="block text-xs mb-1 font-medium text-gray-500">活動圖片</label>
+                             <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:bg-gray-50 transition-colors">
+                                <input type="file" id="editImageFile" accept="image/*" class="hidden" onchange="window.handleImageUpload(this)">
+                                <label for="editImageFile" class="cursor-pointer flex flex-col items-center justify-center">
+                                    ${getIconHtml('image', 24, 'text-gray-400 mb-1')}
+                                    <span class="text-xs text-gray-500">點擊更換圖片</span>
+                                </label>
+                                <input type="text" id="editImage" value="${currentImage.startsWith('data:') ? '' : currentImage}" placeholder="或是貼上圖片網址..." class="mt-2 w-full border-b border-gray-300 text-xs p-1 focus:outline-none bg-transparent text-center">
+                                <img id="imagePreview" src="${currentImage}" class="${currentImage ? '' : 'hidden'} mt-2 max-h-24 rounded mx-auto object-cover">
+                             </div>
+                        </div>
+                        <textarea id="editDescription" class="w-full border p-2 rounded">${activity.description}</textarea>
+                        <input id="editMapQuery" class="w-full border p-2 rounded" value="${activity.mapQuery}">
+                        <div class="border-t pt-2 mt-2">
+                            <label class="text-xs font-bold mb-1 block">備註 (支援網址)</label>
+                            <div class="flex gap-2 mb-2">
+                                <input id="linkText" placeholder="連結名稱" class="border p-1 text-sm w-1/3 rounded">
+                                <input id="linkUrl" placeholder="連結網址" class="border p-1 text-sm w-full rounded">
+                                <button type="button" onclick="window.insertLink()" class="bg-gray-200 px-2 text-sm rounded">插入</button>
+                            </div>
+                            <textarea id="editNotes" class="w-full border p-2 rounded h-24 text-sm">${activity.notes || ''}</textarea>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex justify-end gap-2"><button onclick="window.closeModal()" class="px-3 py-1 bg-gray-200 rounded">取消</button><button type="submit" class="px-3 py-1 bg-rose-500 text-white rounded">儲存</button></div>
+                </form>`);
+        };
+
+        window.saveEditedActivity = (currentDayNum, actId) => {
+            const sourceDay = itinerary.find(d => d.day === currentDayNum);
+            if (!sourceDay) return;
+            
+            const activityIndex = sourceDay.activities.findIndex(a => a.id === actId);
+            if (activityIndex === -1) return;
+
+            const activity = sourceDay.activities[activityIndex];
+            
+            const newDayNum = parseInt(document.getElementById('editDay').value);
+            activity.title = document.getElementById('editTitle').value.trim();
+            activity.time = document.getElementById('editTime').value;
+            activity.type = document.getElementById('editType').value;
+            activity.description = document.getElementById('editDescription').value.trim();
+            activity.mapQuery = document.getElementById('editMapQuery').value.trim();
+            activity.notes = document.getElementById('editNotes').value;
+            const imgUrl = document.getElementById('editImage').value.trim();
+            if (tempImageBase64) activity.image = tempImageBase64;
+            else if (imgUrl) activity.image = imgUrl;
+
+            if (newDayNum !== currentDayNum) {
+                sourceDay.activities.splice(activityIndex, 1);
+                const targetDay = itinerary.find(d => d.day === newDayNum);
+                if (targetDay) {
+                    targetDay.activities.push(activity);
+                    targetDay.activities.sort((a, b) => a.time.localeCompare(b.time));
+                    activeDay = newDayNum; 
+                    saveLocalState();
+                }
+            } else {
+                sourceDay.activities.sort((a, b) => a.time.localeCompare(b.time));
+            }
+
+            saveToCloud();
+            window.closeModal();
+            renderApp();
+        };
+
+        window.insertLink = () => {
+            const text = document.getElementById('linkText').value.trim();
+            const url = document.getElementById('linkUrl').value.trim();
+            const notes = document.getElementById('editNotes');
+            if(text && url) {
+                notes.value += `\n[${text}](${url})`;
+                document.getElementById('linkText').value = '';
+                document.getElementById('linkUrl').value = '';
+            }
+        };
+
+        // Custom Confirmation Modal
+        window.showCustomModal = ({ title, body, confirmText, cancelText, onConfirm }) => {
+            // Store the confirm callback globally to avoid closure issues
+            window.pendingConfirmAction = onConfirm;
+            
+            const html = `
+                <h3 class="text-lg font-bold text-gray-800 mb-4">${title}</h3>
+                <p class="text-gray-700 mb-6">${body}</p>
+                <div class="flex justify-end space-x-3">
+                    <button onclick="window.closeModal()" class="px-4 py-2 text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 font-medium">${cancelText}</button>
+                    <button onclick="if(window.pendingConfirmAction) window.pendingConfirmAction();" class="px-4 py-2 text-white bg-rose-600 rounded-lg hover:bg-rose-700 font-medium shadow-md">${confirmText}</button>
+                </div>
+            `;
+            openModal(html);
+        };
+
+        window.closeModal = (e) => { if (e && e.target !== document.getElementById('modal-backdrop')) return; document.getElementById('modal-backdrop').classList.remove('open'); };
+        const openModal = (html) => { document.getElementById('modal-content').innerHTML = html; lucide.createIcons(); document.getElementById('modal-backdrop').classList.add('open'); };
+
+        window.onload = initApp;
+    </script>
+</body>
+</html>
